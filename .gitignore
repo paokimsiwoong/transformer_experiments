@@ -1,0 +1,14 @@
+__pycache__/
+
+.venv
+.env
+
+dataset/
+my_dataset/
+my_real_dataset/
+transformer/data.csv
+transformer/data_old.csv
+pths/
+tokenizer_saves/
+
+test_*.ipynb
