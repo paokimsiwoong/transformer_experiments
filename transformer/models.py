@@ -96,7 +96,7 @@ class Transformer(nn.Module):
         en_block_num=6,
         de_block_num=6,
         drop_rate=0.1,
-        tie_weights=False,
+        tie_weights=True,
     ):
         super().__init__()
 
@@ -115,6 +115,7 @@ class Transformer(nn.Module):
         # num_embeddings = 단어 집합 개수 (len(vocab))
         # embedding_dim = embed 된 결과 벡터의 차원
         # padding_idx = 패딩 토큰 <PAD> 의 index를 nn.Embedding에 알려주는 인자
+
 
         self.encoder = Encoder(
             q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate
@@ -136,13 +137,17 @@ class Transformer(nn.Module):
         # 
         # 소스/타겟 언어가 같거나 매우 유사한 경우
         # Three way weight tying (TWWT: encoder와 decoder, generator까지 모두 공유)가 유리 (메모리 절감, 규제 효과)
+        # @@@ 사용하는 토크나이저가 소스/타겟 언어를 단일 vocab으로 토큰화 하는 경우도 weight tying 하는게 유리
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         if not tie_weights:
             self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab)
         else:
-            self.src_embed[0].weight = self.tgt_embed[0].weight
+            # self.src_embed[0].weight = self.tgt_embed[0].weight
+            # @@@ embeddings.Embeddings 안의 self.embed가 nn.Embedding 이다
+            self.src_embed[0].embed.weight = self.tgt_embed[0].embed.weight
             self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
-            self.ffc.weight = self.tgt_embed[0].weight
+            # self.ffc.weight = self.tgt_embed[0].weight
+            self.ffc.weight = self.tgt_embed[0].embed.weight
         # @@@ https://stackoverflow.com/questions/65456174/how-to-use-an-embedding-layer-as-a-linear-layer-in-pytorch
         # @@@ 논문처럼 pre-softmax linear의 weight는 nn.Embedding weight를 공유해서 사용
         # @@@ 여기서 = 는 reference => embed의 weight가 수정되면(역전파 등) ffc의 weight도 수정된다

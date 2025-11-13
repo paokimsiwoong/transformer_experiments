@@ -57,7 +57,7 @@ def parse_args():
     # gpu 개수 * 4로 설정하는 것이 좋다는 의견이 있음
 
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--val_batch_size", type=int, default=4)
+    parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--val_num_workers", type=int, default=4)
 
     parser.add_argument("--max_token_length", type=int, default=512)
@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument("--label_smoothing", type=float, default=0.1)
 
 
-    parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--learning_rate", type=float, default=1)
     # parser.add_argument("--weight_decay", type=float, default=0.00005)
     parser.add_argument("--warmup_steps", type=int, default=4000)
     parser.add_argument("--max_epoch", type=int, default=10)
