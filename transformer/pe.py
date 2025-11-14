@@ -25,7 +25,7 @@ class PositionalEncoding(nn.Module):
         # self.positional_encodings의 shape는 (1, max_len, d_model)
         # x의 shape는 (n_batch, seq_len, d_model)이므로
         # slicing을 해서 self.positional_encodings의 (1, seq_len, d_model)로 변경
-        pe = self.positional_encodings[:, :x.size(1)]
+        pe = self.positional_encodings[:, :x.size(1), :]
         x = x + pe
         x = self.dropout(x)
         return x 
@@ -46,7 +46,7 @@ def get_positional_encoding(d_model: int, max_len: int = 5000):
     # two_i.shape = ( celing(d_model/2) )
 
 
-    # 10000 ^ (2i/d_model)
+    # 10000 ^ (-2i/d_model)
     div_term = torch.exp(two_i * -(math.log(10000.0) / d_model))
     # @@@ -를 지수에 곱해 다음 코드에서 / 대신 *를 사용할 수 있게 한다
     # e ^ (2i * -log_e(10000) / d_model) == (e ^(log_e(10000)) ) ^ (-2i / d_model)

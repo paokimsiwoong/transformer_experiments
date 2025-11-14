@@ -11,4 +11,6 @@ transformer/data_old.csv
 pths/
 tokenizer_saves/
 
+wandb/
+
 test_*.ipynb

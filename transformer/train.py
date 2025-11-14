@@ -32,13 +32,13 @@ def parse_args():
         type=str,
         default=os.environ.get(
             "SM_DATA_DIR",
-            "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data.csv",
+            "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data.csv",
         ),
     )
 
     # pth 파일 저장 경로
     parser.add_argument(
-        "--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/pths")
+        "--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/pths")
     )
 
     # resume 파일 이름
@@ -76,7 +76,9 @@ def parse_args():
 
     parser.add_argument("--learning_rate", type=float, default=1)
     # parser.add_argument("--weight_decay", type=float, default=0.00005)
-    parser.add_argument("--warmup_steps", type=int, default=4000)
+    # parser.add_argument("--warmup_steps", type=int, default=4000)
+    parser.add_argument("--warmup_steps", type=int, default=16000)
+    # @@@ 전체 step의 5~10% (128만 문장을 batch_size 8 => 160000 스텝 => 10%는 16000)
     parser.add_argument("--max_epoch", type=int, default=10)
 
     parser.add_argument("--save_interval", type=int, default=1)
@@ -89,6 +91,7 @@ def parse_args():
     # mixed precision 사용할 지 여부
 
     # parser.add_argument("--wandb_mode", type=str, default="online")
+    # parser.add_argument("--wandb_mode", type=str, default="offline")
     parser.add_argument("--wandb_mode", type=str, default="disabled")
     # wandb mode
     parser.add_argument("--wandb_run_name", type=str, default="KorEnTransformer")
@@ -185,6 +188,12 @@ def train(
     model = Transformer(src_len_vocab=len_vocab, tgt_len_vocab=len_vocab, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, h_dim=(q_dim * 4))
     # KETI-AIR/ke-t5-base tokenizer의 한영 통합 토큰 종류 수는 64100 + 시작 토큰 1개 추가해서 = 64101개
 
+    # 파라메터 초기화 임시 위치
+    for p in model.parameters():
+        if p.dim() > 1:
+            # nn.init.xavier_uniform(p)
+            nn.init.xavier_uniform_(p)
+
     load_dict = None
 
     if resume_name:
@@ -238,6 +247,7 @@ def train(
 
     # best_loss = np.inf
     # best_auc = 0
+    val_bleu = 0
     best_bleu = 0
     # best_perplexity = 0
 
@@ -250,6 +260,7 @@ def train(
 
         epoch_loss = 0
         epoch_total_tokens = 0
+        
 
         for step, batch in tqdm(
             enumerate(loaders.loader_train),
@@ -312,12 +323,28 @@ def train(
             normalized_loss = loss / batch_ntokens
 
             normalized_loss.backward()
+
+            loss_value = loss.item()
+            normalized_loss_value = normalized_loss.item()
+
+            # with torch.no_grad():
+            # @@@ 텐서.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
+            wandb_step_dict = {
+                "step_total_loss": loss_value,
+                "step_token_loss": normalized_loss_value,
+                "learning_rate": scheduler.get_last_lr()[0],
+            }
+
+            wandb.log(wandb_step_dict)
+
             optimizer.step()
             scheduler.step()
 
             
-            with torch.no_grad():
-                epoch_loss += loss.item()
+            # with torch.no_grad():
+            # @@@ loss.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
+            epoch_loss += loss_value
+
 
         # 배치당 loss 값의 평균 계산
         epoch_mean_batch_loss = epoch_loss / num_batches_train
@@ -434,15 +461,15 @@ def train(
             # else:
             #     counter += 1
 
-        new_wandb_metric_dict = {
+        wandb_epoch_dict = {
             "train_batch_loss": epoch_mean_batch_loss,
             "train_token_loss": epoch_mean_token_loss,
             # "valid_loss": val_mean_loss,
             "val_bleu": val_bleu,
-            "learning_rate": scheduler.get_last_lr()[0],
+            # "learning_rate": scheduler.get_last_lr()[0],
         }
 
-        wandb.log(new_wandb_metric_dict)
+        wandb.log(wandb_epoch_dict)
 
         # scheduler.step()
 
@@ -468,6 +495,8 @@ def train(
 
     print(f"Start Test")
     test_start = datetime.now()
+
+    test_bleu = 0
 
     model.eval()
 
@@ -535,6 +564,13 @@ def train(
         )
         print("".center(50, "-"))
         print(f"test_bleu: {test_bleu}")
+
+    wandb_test_dict = {
+        # "test_loss": test_mean_loss,
+        "test_bleu": test_bleu,
+    }
+
+    wandb.log(wandb_test_dict)
 
     print("".center(50, "-"))
     print("".center(50, "-"))

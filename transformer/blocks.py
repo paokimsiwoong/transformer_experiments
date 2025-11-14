@@ -195,6 +195,14 @@ class MultiHeadAttention(nn.Module):
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         attend = F.softmax(input=attend, dim=-1)
+
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # The Annotated Transformer 구현과 동일하게 attetion 결과에 dropout 적용
+            # ==> attention이 특정 key에 과도하게 치우치지 않고 더 일반화된 패턴을 학습할 수 있도록 돕는다
+        attend = self.dropout(attend)
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         out = attend @ V
 
         return out
@@ -271,6 +279,11 @@ class FeedForward(nn.Module):
     def forward(self, x):
         x = self.fc1(x)
         x = self.relu(x)
+        
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # The Annotated Transformer 구현과 동일하게 중간에 dropout 추가
+        x = self.dropout(x)
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         x = self.fc2(x)
 
@@ -300,6 +313,8 @@ class EncodingBlock(nn.Module):
 
         out2 = self.LN2(out1 + self.FF(out1))
         # out2는 (b, seq_len, d_model==q_dim) 형태
+
+        # TODO:post-norm을 pre-norm으로 바꿔보기
         return out2
 
 
@@ -332,4 +347,5 @@ class DecodingBlock(nn.Module):
 
         out3 = self.LN3(out2 + self.FF(out2))
 
+        # TODO:post-norm을 pre-norm으로 바꿔보기
         return out3
