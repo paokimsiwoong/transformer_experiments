@@ -87,7 +87,7 @@ class Transformer(nn.Module):
         # unk_idx=3,
         # sep_idx=4,
         # mask_idx=5,
-        max_len = 5000,
+        max_len = 512 * 2,
         q_dim=512,
         k_dim=512,
         v_dim=512,
@@ -258,15 +258,21 @@ class Transformer(nn.Module):
             # K,V: encoder output
             # 로 되어 있으므로 out_en을 K,V 자리에 입력
 
-            out = self.softmax(self.ffc(out_de))
+            # out = self.softmax(self.ffc(out_de))
             # out.size() = (b, seq_len, tgt_len_vocab)
-
             # 마지막 단어의 결과(dim=1(seq_len)의 마지막)가 새 단어 예측
-            next_token_prop = out[:, -1, :]
+            # next_token_prob = out[:, -1, :]
             # (b, tgt_len_vocab)
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # @@@ ffc linear에 들어가기 전에 미리 마지막 단어만 남기는게 계산 및 메모리 절약에 도움이 된다
+            # # @@@ ffc linear에 매번 out_de 전체를 넣으면 메모리 초과 문제 발생
+            next_token_prob = self.softmax(self.ffc(out_de[:, -1, :]))
+            # 마지막 단어의 결과(dim=1(seq_len)의 마지막)가 새 단어 예측
+            # out.size() = (b, tgt_len_vocab)
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
             # argmax로 확률이 제일 큰 index 찾기
-            next_token = next_token_prop.argmax(dim=-1).unsqueeze(1)
+            next_token = next_token_prob.argmax(dim=-1).unsqueeze(1)
             # (b, 1)
 
             ys = torch.cat([ys, next_token], dim=1)
@@ -277,14 +283,43 @@ class Transformer(nn.Module):
                 break
 
         # end token 뒷부분 마스킹 처리
-        eos_indices = (ys == self.end_idx).nonzero()
-        mask = torch.zeros_like(ys, device=device)
-        for b, idx in eos_indices:
-            mask[b, idx+1:] = 1
 
-        ys.masked_fill_(mask.bool(), value=self.padding_idx)
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # eos_indices = (ys == self.end_idx).nonzero()
+        # mask = torch.zeros_like(ys, device=device)
+        # for b, idx in eos_indices:
+        #     mask[b, idx+1:] = 1
 
-        return ys
+        # ys.masked_fill_(mask.bool(), value=self.padding_idx)
+        # for 루프대신 파이토치 벡터연산을 활용하는 방식으로 변경하기
+        # for 루프 방식과 변경된 방식 사이에 메모리나 속도 차이 비교?
+        # # batch size 8~64 사이에서는 큰 차이 없음?
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        # (b, seq_len) 크기 ys에서 각 문장별 첫 eos 토큰 위치 찾기
+        eos_positions = torch.argmax((ys == self.end_idx).int(), dim=1, keepdim=True)  
+        # (b,1)
+        # # If there are multiple maximal values then the indices of the first maximal value are returned.
+        # # ==> self.end_idx가 문장 안에 여러번 나와도 최초 출현 위치의 idx만 반환한다
+        
+        # 각 문장별 위치 인덱스 생성 (seq_len)
+        seq_indices = torch.arange(ys.size(1), device=device).unsqueeze(0)
+        # (1, seq_len)
+        # [[0, 1, 2, 3, ...., seq_len - 1]] 형태
+
+        # mask: eos_pos 이후 토큰 True, 아니라면 False
+        mask = seq_indices > eos_positions
+        # (1, seq_len)인 seq_indices와 (b, 1)인 eos_positions이 broadcast되어 둘다 (b, seq_len) 형태가 된 후 연산
+        # ex: 
+        # ys의 batch 0번이 5번 인덱스에서 최초로 end_idx가 나올 때
+        # seq_indices[0] = [0, 1, 2, 3, 4, 5, ..., seq_len - 1]
+        # eos_positions[0] = [5, 5, 5, 5, 5, 5, 5, ....]
+        # (seq_indices > eos_positions)[0] = [False, False, False, False, False, False, True, True, True, True, ....]
+
+        ys.masked_fill_(mask, value=self.padding_idx)
+
+        # labels와 동일하게 시작토큰을 제외
+        return ys[:, 1:]
 
     def make_pad_mask(self, x_mask):
         # x_mask: (n_batch, key_seq_len)

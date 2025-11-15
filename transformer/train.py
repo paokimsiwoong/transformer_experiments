@@ -126,6 +126,7 @@ def rate(step, model_size, factor, warmup):
 
 
 def train(
+    args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
     data_dir,
     model_dir,
     device,
@@ -248,6 +249,7 @@ def train(
     # best_loss = np.inf
     # best_auc = 0
     val_bleu = 0
+    val_total_tokens = 0
     best_bleu = 0
     # best_perplexity = 0
 
@@ -377,6 +379,7 @@ def train(
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
                 # "scaler_state_dict": scaler.state_dict(),
+                "args": args_dicts,
             }
 
             torch.save(states, ckpt_fpath)
@@ -426,6 +429,7 @@ def train(
                     # @@@ val 과정에서는 필요 없음
                     # gt_masks = batch_val['decoder_mask'].to(device)
 
+                    # preds = model.inference(inputs, x_masks, min(labels.size(-1) * 2, labels.size(-1) + 5))
                     preds = model.inference(inputs, x_masks, labels.size(-1) * 2)
                     # (batch_size, pred_seq_len)
 
@@ -537,6 +541,7 @@ def train(
             # @@@ test 과정에서는 필요 없음
             # gt_masks = batch_test['decoder_mask'].to(device)
 
+            # preds = model.inference(inputs, x_masks, min(labels.size(-1) * 2, labels.size(-1) + 5))
             preds = model.inference(inputs, x_masks, labels.size(-1) * 2)
             # (batch_size, pred_seq_len)
 
@@ -593,7 +598,8 @@ def main(args):
     # else:
     #     print("not debug")
 
-    train(**args.__dict__)
+    train(args.__dict__, **args.__dict__)
+    # 입력 명령어 pth에 저장하기 위해 args.__dict__ 추가로 받기
 
 
 if __name__ == "__main__":
