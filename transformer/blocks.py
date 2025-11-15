@@ -307,14 +307,19 @@ class EncodingBlock(nn.Module):
 
     def forward(self, Q, mask):
         # @@@ pad 부분과 실제 단어 사이에 attention을 0으로 mask하는 mask 필수?
-        out1 = self.LN1(Q + self.MHA(Q, Q, Q, mask))
+        # out1 = self.LN1(Q + self.MHA(Q, Q, Q, mask))
         # self attention이므로 input 하나로 Q,K,V 전부 생성
         # residual connection 연결 후 layer norm 실행
 
-        out2 = self.LN2(out1 + self.FF(out1))
+        # out2 = self.LN2(out1 + self.FF(out1))
         # out2는 (b, seq_len, d_model==q_dim) 형태
 
         # TODO:post-norm을 pre-norm으로 바꿔보기
+
+        normalized = self.LN1(Q)
+
+        out1 = Q + self.MHA(normalized, normalized, normalized, mask)
+        out2 = out1 + self.FF(self.LN2(out1))
         return out2
 
 
@@ -339,13 +344,22 @@ class DecodingBlock(nn.Module):
         self.LN3 = nn.LayerNorm(q_dim)
 
     def forward(self, Q, K, V, tgt_mask, src_mask):
-        out1 = self.LN1(Q + self.MMHA(Q, Q, Q, tgt_mask))
+        # out1 = self.LN1(Q + self.MMHA(Q, Q, Q, tgt_mask))
         # Masked self-attention이므로 query, key, value 모두 Q
 
-        out2 = self.LN2(out1 + self.MHA(out1, K, V, src_mask))
+        # out2 = self.LN2(out1 + self.MHA(out1, K, V, src_mask))
         # encoder-decoder attention은 key와 value는 encoder 출력을 입력받아 사용
 
-        out3 = self.LN3(out2 + self.FF(out2))
+        # out3 = self.LN3(out2 + self.FF(out2))
 
         # TODO:post-norm을 pre-norm으로 바꿔보기
+
+        normalized = self.LN1(Q)
+
+        out1 = Q + self.MMHA(normalized, normalized, normalized, tgt_mask)
+
+        out2 = out1 + self.MHA(self.LN2(out1), K, V, src_mask)
+
+        out3 = out2 + self.FF(self.LN3(out2))
+
         return out3
