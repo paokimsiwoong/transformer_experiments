@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from tqdm import tqdm
 
 
@@ -57,7 +56,7 @@ def parse_args():
     # gpu 개수 * 4로 설정하는 것이 좋다는 의견이 있음
 
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--val_batch_size", type=int, default=8)
+    parser.add_argument("--val_batch_size", type=int, default=64)
     parser.add_argument("--val_num_workers", type=int, default=4)
 
     parser.add_argument("--max_token_length", type=int, default=512)
@@ -247,11 +246,7 @@ def train(
     wandb.watch((model,))
 
     # best_loss = np.inf
-    # best_auc = 0
-    val_bleu = 0
-    val_total_tokens = 0
     best_bleu = 0
-    # best_perplexity = 0
 
     num_batches_train = len(loaders.loader_train)
 
@@ -369,8 +364,6 @@ def train(
 
         if (epoch + 1) % save_interval == 0:
             
-            
-
             ckpt_fpath = osp.join(model_dir, f"transformer_koren_{train_start}_latest.pth")
 
             states = {
@@ -390,6 +383,7 @@ def train(
             # val 또는 test 과정에 원문, 번역문 정답, 번역문 예측 결과 저장하기
 
             print(f"Start validation #{epoch+1:2d}")
+            val_start = datetime.now()
             model.eval()
 
             with torch.no_grad():
@@ -445,8 +439,44 @@ def train(
                 result = loaders.compute_metrics()
 
                 val_bleu = result['bleu']
+                val_meteor = result['meteor']
+                val_chrf = result['chrf']
+                val_ter = result['ter']
+                val_bertscore_f1 = result['bertscore_f1']
+                val_bertscore_precision = result['bertscore_precision']
+                val_bertscore_recall = result['bertscore_recall']
+
+            wandb_val_dict = {
+                "val_bleu": val_bleu,
+                "val_meteor": val_meteor,
+                "val_chrf": val_chrf,
+                "val_ter": val_ter,
+                "val_bertscore_f1": val_bertscore_f1,
+                "val_bertscore_precision": val_bertscore_precision,
+                "val_bertscore_recall": val_bertscore_recall,
+            }
+
+            wandb.log(wandb_val_dict)
+
+            val_end = datetime.now()
+            val_time = val_end - val_start
+            val_time = str(val_time).split(".")[0]
+            print("".center(50, "-"))
+            print("".center(50, "-"))
+            print(
+                f"==>> epoch {epoch+1} validation time: {val_time}\nval_total_tokens: {val_total_tokens}"
+            )
+            print("".center(50, "-"))
+            print(f"val_bleu: {val_bleu}")
+            print(f"val_meteor: {val_meteor}")
+            print(f"val_chrf: {val_chrf}")
+            print(f"val_ter: {val_ter}")
+            print(f"val_bertscore_f1: {val_bertscore_f1}")
+            print(f"val_bertscore_precision: {val_bertscore_precision}")
+            print(f"val_bertscore_recall: {val_bertscore_recall}")
 
             if best_bleu < val_bleu:
+                print("".center(50, "-"))
                 print(
                     f"Best bleu performance at epoch: {epoch + 1}, {best_bleu:.4f} -> {val_bleu:.4f}"
                 )
@@ -468,9 +498,6 @@ def train(
         wandb_epoch_dict = {
             "train_batch_loss": epoch_mean_batch_loss,
             "train_token_loss": epoch_mean_token_loss,
-            # "valid_loss": val_mean_loss,
-            "val_bleu": val_bleu,
-            # "learning_rate": scheduler.get_last_lr()[0],
         }
 
         wandb.log(wandb_epoch_dict)
@@ -483,15 +510,14 @@ def train(
         print("".center(50, "-"))
         print("".center(50, "-"))
         print(
-            f"==>> epoch {epoch+1} time: {epoch_time}\nval_total_tokens: {val_total_tokens}"
+            f"==>> epoch {epoch+1} time: {epoch_time}"
         )
-        print("".center(50, "-"))
-        print(f"val_bleu: {val_bleu}")
 
         # if counter > patience:
         #     print("Early Stopping...")
         #     break
 
+    print("".center(50, "-"))
     print("".center(50, "-"))
     print("".center(50, "-"))
 
@@ -509,7 +535,6 @@ def train(
         # @@@ 예측 문장의 길이와 정답 문장의 길이가 다를 수 있어 LabelSmoothing으로 loss 계산 어려움
 
         # test_bleu = 0
-        # test_perplexity = 0
 
         test_total_tokens = 0
 
@@ -557,6 +582,12 @@ def train(
         result = loaders.compute_metrics()
 
         test_bleu = result['bleu']
+        test_meteor = result['meteor']
+        test_chrf = result['chrf']
+        test_ter = result['ter']
+        test_bertscore_f1 = result['bertscore_f1']
+        test_bertscore_precision = result['bertscore_precision']
+        test_bertscore_recall = result['bertscore_recall']
 
 
         test_end = datetime.now()
@@ -569,10 +600,22 @@ def train(
         )
         print("".center(50, "-"))
         print(f"test_bleu: {test_bleu}")
+        print(f"test_meteor: {test_meteor}")
+        print(f"test_chrf: {test_chrf}")
+        print(f"test_ter: {test_ter}")
+        print(f"test_bertscore_f1: {test_bertscore_f1}")
+        print(f"test_bertscore_precision: {test_bertscore_precision}")
+        print(f"test_bertscore_recall: {test_bertscore_recall}")
 
     wandb_test_dict = {
         # "test_loss": test_mean_loss,
         "test_bleu": test_bleu,
+        "test_meteor": test_meteor,
+        "test_chrf": test_chrf,
+        "test_ter": test_ter,
+        "test_bertscore_f1": test_bertscore_f1,
+        "test_bertscore_precision": test_bertscore_precision,
+        "test_bertscore_recall": test_bertscore_recall,
     }
 
     wandb.log(wandb_test_dict)

@@ -114,7 +114,15 @@ class Loaders():
         self.loader_test = DataLoader(self.test_set, batch_size=batch_size_test, collate_fn=c_fn, shuffle=False, num_workers=val_num_workers)
 
         # BLEU 계산에 필요
-        self.metric = evaluate.load("sacrebleu")
+        self.metric_bleu = evaluate.load("sacrebleu")
+        # METEOR - 단어 정렬, 동의어, 어근 등을 반영하여 인간 평가에 근접한 의미적 평가
+        self.metric_meteor = evaluate.load("meteor")
+        # BERTScore - 사전학습된 BERT 임베딩 기반으로 문장 수준 의미적 유사성을 평가
+        self.metric_bertscore = evaluate.load("bertscore")
+        # ChrF - 문자 단위 n-그램 기반으로, 한국어 같은 교착어 처리에 강하고 어휘 미스매치에 강건
+        self.metric_chrf = evaluate.load("chrf")
+        # TER (Translation Edit Rate) - 번역과 정답 간 편집 거리 기반 메트릭으로, 오류율을 직관적으로 파악할 수 있어 BLEU 보완에 유용
+        self.metric_ter = evaluate.load("ter")
 
     def add_batch_to_metrics(self, preds, labels):
 
@@ -126,19 +134,41 @@ class Loaders():
         decoded_preds = [pred.strip() for pred in decoded_preds]
         decoded_labels = [[label.strip()] for label in decoded_labels]
 
-        self.metric.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_bleu.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_meteor.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_bertscore.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_chrf.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_ter.add_batch(predictions=decoded_preds, references=decoded_labels)
 
     def compute_metrics(self):
-        result = self.metric.compute()
-        result = {"bleu": result["score"]}
+        results = {}
+        print("computing bleu score")
+        results['bleu'] = self.metric_bleu.compute()['score']
+        print("computing meteor score")
+        results['meteor'] = self.metric_meteor.compute()['meteor']
+        print("computing chrf score")
+        results['chrf'] = self.metric_chrf.compute()['score']
+        print("computing ter score")
+        results['ter'] = self.metric_ter.compute()['score']  # 참고로 TER는 wer 키를 쓸 수도 있음
+        print("computing bert score")
+        bertscore_res = self.metric_bertscore.compute(lang="en")  # 사용할 언어 지정
+        results['bertscore_f1'] = bertscore_res['f1'][0]
+        results['bertscore_precision'] = bertscore_res['precision'][0]
+        results['bertscore_recall'] = bertscore_res['recall'][0]
+
+        print("metric computings all done")
 
         # 계산 후 초기화를 해서 다음 에폭에 대비
         # self.metric.reset()
         # AttributeError: 'Sacrebleu' object has no attribute 'reset'
 
-        self.metric = evaluate.load("sacrebleu")
+        self.metric_bleu = evaluate.load("sacrebleu")
+        self.metric_meteor = evaluate.load("meteor")
+        self.metric_bertscore = evaluate.load("bertscore")
+        self.metric_chrf = evaluate.load("chrf")
+        self.metric_ter = evaluate.load("ter")
 
-        return result
+        return results
 
 
     # https://huggingface.co/learn/llm-course/chapter7/4?fw=pt#metrics
