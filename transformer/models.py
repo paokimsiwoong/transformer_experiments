@@ -17,12 +17,12 @@ import blocks, embeddings, pe
 
 
 class Encoder(nn.Module):
-    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate):
+    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate, visualization=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
             [
-                blocks.EncodingBlock(q_dim=q_dim, h_dim=h_dim, head_num=head_num, drop_rate=drop_rate)
+                blocks.EncodingBlock(q_dim=q_dim, h_dim=h_dim, head_num=head_num, drop_rate=drop_rate, visualization=visualization)
                 for i in range(block_num)
             ]
         )
@@ -37,13 +37,13 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate):
+    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate, visualization=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
             [
                 blocks.DecodingBlock(
-                    q_dim=q_dim, k_dim=k_dim, v_dim=v_dim, h_dim=h_dim, head_num=head_num, drop_rate=drop_rate
+                    q_dim=q_dim, k_dim=k_dim, v_dim=v_dim, h_dim=h_dim, head_num=head_num, drop_rate=drop_rate, visualization=visualization
                 )
                 for i in range(block_num)
             ]
@@ -97,6 +97,7 @@ class Transformer(nn.Module):
         de_block_num=6,
         drop_rate=0.1,
         tie_weights=True,
+        visualization=False,
     ):
         super().__init__()
 
@@ -118,7 +119,7 @@ class Transformer(nn.Module):
 
 
         self.encoder = Encoder(
-            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate
+            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate, visualization=visualization
         )
         self.decoder = Decoder(
             q_dim=q_dim,
@@ -128,6 +129,7 @@ class Transformer(nn.Module):
             head_num=head_num,
             block_num=de_block_num,
             drop_rate=drop_rate,
+            visualization=visualization,
         )
 
         

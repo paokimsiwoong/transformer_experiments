@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -95,13 +96,15 @@ class ScaledDotPruductAttention(nn.Module):
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         attend = F.softmax(input=attend, dim=-1)
+
+
         out = attend @ V
 
         return out
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, q_dim, k_dim, v_dim, head_num, drop_rate):
+    def __init__(self, q_dim, k_dim, v_dim, head_num, drop_rate, visualization=False):
         # EncodingBlock에서 input x와 MultiHeadAttention(x)을 더하는 residual connection이 존재
         # => MultiHeadAttention(x)은 x와 동일 차원이어야 한다
         # decoder안에서는 key와 value가 encoder에서 올 수도 있으므로
@@ -151,6 +154,11 @@ class MultiHeadAttention(nn.Module):
         # layernorm(sublayer_input + dropout(sublayer(sublayer_input)))
         # self._reset_parameters()
 
+        self.visualization = visualization
+        # 시각화 여부를 저장하는 bool값
+        self.attn = None
+        # attention 시각화에 사용할 attention 값을 저장하는 멤버변수
+
     def _reset_parameters(self):
         # Original Transformer initialization, see PyTorch documentation
         nn.init.xavier_uniform_(self.make_Q.weight)
@@ -163,6 +171,10 @@ class MultiHeadAttention(nn.Module):
         self.make_O.bias.data.fill_(0)
 
     def SDPA(self, Q, K, V, mask):
+
+        # assert not torch.isnan(Q).any(), "Q value is NaN!"
+        # assert not torch.isnan(K).any(), "K value is NaN!"
+        # assert not torch.isnan(V).any(), "V value is NaN!"
 
         K_T = K.transpose(-2, -1)
 
@@ -194,14 +206,21 @@ class MultiHeadAttention(nn.Module):
             # pad 부분이 True가 되도록 mask == 0을 한 후 입력해야 한다.
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        # assert not torch.isnan(attend).any(), "pre-softmax attention value is NaN!"
+
         attend = F.softmax(input=attend, dim=-1)
 
+        # assert not torch.isnan(attend).any(), "attention value is NaN!"
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # The Annotated Transformer 구현과 동일하게 attetion 결과에 dropout 적용
             # ==> attention이 특정 key에 과도하게 치우치지 않고 더 일반화된 패턴을 학습할 수 있도록 돕는다
         attend = self.dropout(attend)
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        if self.visualization:
+            self.attn = attend
 
         out = attend @ V
 
@@ -293,10 +312,10 @@ class FeedForward(nn.Module):
 
 
 class EncodingBlock(nn.Module):
-    def __init__(self, q_dim, h_dim, head_num, drop_rate):
+    def __init__(self, q_dim, h_dim, head_num, drop_rate, visualization=False):
         super().__init__()
         self.MHA = MultiHeadAttention(
-            q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, head_num=head_num, drop_rate=drop_rate
+            q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, head_num=head_num, drop_rate=drop_rate, visualization=visualization
         )
         # self attention
         # (b, seq_len, q_dim) => (b, seq_len, q_dim)
@@ -324,10 +343,10 @@ class EncodingBlock(nn.Module):
 
 
 class DecodingBlock(nn.Module):
-    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, drop_rate):
+    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, drop_rate, visualization=False):
         super().__init__()
         self.MMHA = MultiHeadAttention(
-            q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, head_num=head_num, drop_rate=drop_rate
+            q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, head_num=head_num, drop_rate=drop_rate, visualization=visualization
         )
         # Masked self-attention
 

@@ -123,6 +123,19 @@ def rate(step, model_size, factor, warmup):
     )
 
 
+# 파라메터에 NaN이 있는지 확인하는 함수
+def check_nan_in_parameters(model):
+    for name, param in model.named_parameters():
+        if torch.isnan(param).any():
+            print(f"NaN found in parameter: {name}")
+            return True
+    return False
+
+# 파라메터에 hook로 등록하면 grad에 NaN이 들어올 때 raise하는 함수
+def nan_hook(grad):
+    if torch.isnan(grad).any():
+        print("NaN detected in gradient!")
+        raise ValueError("NaN in gradient!")
 
 def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
@@ -204,6 +217,11 @@ def train(
 
     model.to(device)
 
+    # 모든 파라미터에 hook 등록
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param.register_hook(nan_hook)
+
     optimizer = torch.optim.Adam(
         model.parameters(),
         # lr=learning_rate,
@@ -267,6 +285,7 @@ def train(
 
             # if step == 10:
             #     break
+            
 
             inputs = batch['input_ids'].to(device)
             # (batch_size, src_seq_len)
@@ -317,6 +336,8 @@ def train(
                 # ==> 짧은 문장보다 긴 문장이 많을 때 학습이 잘되므로 문장 길이마다 학습 정도가 불균형하게 됨
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+            assert not torch.isnan(loss), "Loss value is NaN!"
+
             normalized_loss = loss / batch_ntokens
 
             normalized_loss.backward()
@@ -336,6 +357,10 @@ def train(
 
             optimizer.step()
             scheduler.step()
+
+            # NaN값이 파라메터이 있는지 확인
+            if check_nan_in_parameters(model):
+                raise ValueError("NaN detected in model parameters!")
 
             
             # with torch.no_grad():
@@ -439,21 +464,21 @@ def train(
                 result = loaders.compute_metrics()
 
                 val_bleu = result['bleu']
-                val_meteor = result['meteor']
                 val_chrf = result['chrf']
-                val_ter = result['ter']
-                val_bertscore_f1 = result['bertscore_f1']
-                val_bertscore_precision = result['bertscore_precision']
-                val_bertscore_recall = result['bertscore_recall']
+                # val_ter = result['ter']
+                val_meteor = result['meteor']
+                # val_bertscore_f1 = result['bertscore_f1']
+                # val_bertscore_precision = result['bertscore_precision']
+                # val_bertscore_recall = result['bertscore_recall']
 
             wandb_val_dict = {
                 "val_bleu": val_bleu,
-                "val_meteor": val_meteor,
                 "val_chrf": val_chrf,
-                "val_ter": val_ter,
-                "val_bertscore_f1": val_bertscore_f1,
-                "val_bertscore_precision": val_bertscore_precision,
-                "val_bertscore_recall": val_bertscore_recall,
+                # "val_ter": val_ter,
+                "val_meteor": val_meteor,
+                # "val_bertscore_f1": val_bertscore_f1,
+                # "val_bertscore_precision": val_bertscore_precision,
+                # "val_bertscore_recall": val_bertscore_recall,
             }
 
             wandb.log(wandb_val_dict)
@@ -468,12 +493,12 @@ def train(
             )
             print("".center(50, "-"))
             print(f"val_bleu: {val_bleu}")
-            print(f"val_meteor: {val_meteor}")
             print(f"val_chrf: {val_chrf}")
-            print(f"val_ter: {val_ter}")
-            print(f"val_bertscore_f1: {val_bertscore_f1}")
-            print(f"val_bertscore_precision: {val_bertscore_precision}")
-            print(f"val_bertscore_recall: {val_bertscore_recall}")
+            # print(f"val_ter: {val_ter}")
+            print(f"val_meteor: {val_meteor}")
+            # print(f"val_bertscore_f1: {val_bertscore_f1}")
+            # print(f"val_bertscore_precision: {val_bertscore_precision}")
+            # print(f"val_bertscore_recall: {val_bertscore_recall}")
 
             if best_bleu < val_bleu:
                 print("".center(50, "-"))
@@ -582,12 +607,12 @@ def train(
         result = loaders.compute_metrics()
 
         test_bleu = result['bleu']
-        test_meteor = result['meteor']
         test_chrf = result['chrf']
-        test_ter = result['ter']
-        test_bertscore_f1 = result['bertscore_f1']
-        test_bertscore_precision = result['bertscore_precision']
-        test_bertscore_recall = result['bertscore_recall']
+        # test_ter = result['ter']
+        test_meteor = result['meteor']
+        # test_bertscore_f1 = result['bertscore_f1']
+        # test_bertscore_precision = result['bertscore_precision']
+        # test_bertscore_recall = result['bertscore_recall']
 
 
         test_end = datetime.now()
@@ -600,22 +625,22 @@ def train(
         )
         print("".center(50, "-"))
         print(f"test_bleu: {test_bleu}")
-        print(f"test_meteor: {test_meteor}")
         print(f"test_chrf: {test_chrf}")
-        print(f"test_ter: {test_ter}")
-        print(f"test_bertscore_f1: {test_bertscore_f1}")
-        print(f"test_bertscore_precision: {test_bertscore_precision}")
-        print(f"test_bertscore_recall: {test_bertscore_recall}")
+        # print(f"test_ter: {test_ter}")
+        print(f"test_meteor: {test_meteor}")
+        # print(f"test_bertscore_f1: {test_bertscore_f1}")
+        # print(f"test_bertscore_precision: {test_bertscore_precision}")
+        # print(f"test_bertscore_recall: {test_bertscore_recall}")
 
     wandb_test_dict = {
         # "test_loss": test_mean_loss,
         "test_bleu": test_bleu,
-        "test_meteor": test_meteor,
         "test_chrf": test_chrf,
-        "test_ter": test_ter,
-        "test_bertscore_f1": test_bertscore_f1,
-        "test_bertscore_precision": test_bertscore_precision,
-        "test_bertscore_recall": test_bertscore_recall,
+        # "test_ter": test_ter,
+        "test_meteor": test_meteor,
+        # "test_bertscore_f1": test_bertscore_f1,
+        # "test_bertscore_precision": test_bertscore_precision,
+        # "test_bertscore_recall": test_bertscore_recall,
     }
 
     wandb.log(wandb_test_dict)
