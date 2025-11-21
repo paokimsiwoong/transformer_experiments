@@ -137,6 +137,19 @@ def nan_hook(grad):
         print("NaN detected in gradient!")
         raise ValueError("NaN in gradient!")
 
+# 파라메터에 그래디언트 클리핑 적용하는 hook
+def clip_grad_hook(grad):
+    max_norm = 1.0  # 원하는 클리핑 임계값
+
+    if torch.isnan(grad).any():
+        print("NaN detected in gradient!")
+        raise ValueError("NaN in gradient!")
+    
+    norm = grad.norm()
+    if norm > max_norm:
+        grad = grad * (max_norm / norm)
+    return grad
+
 def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
     data_dir,
@@ -217,10 +230,13 @@ def train(
 
     model.to(device)
 
-    # 모든 파라미터에 hook 등록
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            param.register_hook(nan_hook)
+    # 모든 파라미터에 grad NaN 체크하는 hook 등록
+    # for name, param in model.named_parameters():
+    #     if param.requires_grad:
+    #         param.register_hook(nan_hook)
+
+    # 임베딩 층의 웨이트에 그래디언트 클리핑 hook 등록
+    model.src_embed[0].embed.weight.register_hook(clip_grad_hook)
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -345,12 +361,20 @@ def train(
             loss_value = loss.item()
             normalized_loss_value = normalized_loss.item()
 
+            # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
+            weight = model.src_embed[0].embed.weight
+            grad = weight.grad
+
             # with torch.no_grad():
             # @@@ 텐서.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
             wandb_step_dict = {
                 "step_total_loss": loss_value,
                 "step_token_loss": normalized_loss_value,
                 "learning_rate": scheduler.get_last_lr()[0],
+                "embed_weight_mean": weight.mean().item(),
+                "embed_weight_max": weight.max().item(),
+                "embed_grad_mean": grad.mean().item() if grad is not None else None,
+                "embed_grad_max": grad.max().item() if grad is not None else None,
             }
 
             wandb.log(wandb_step_dict)
@@ -359,8 +383,8 @@ def train(
             scheduler.step()
 
             # NaN값이 파라메터이 있는지 확인
-            if check_nan_in_parameters(model):
-                raise ValueError("NaN detected in model parameters!")
+            # if check_nan_in_parameters(model):
+            #     raise ValueError("NaN detected in model parameters!")
 
             
             # with torch.no_grad():
