@@ -351,7 +351,7 @@ class DecodingBlock(nn.Module):
         # Masked self-attention
 
         self.MHA = MultiHeadAttention(
-            q_dim=q_dim, k_dim=k_dim, v_dim=v_dim, head_num=head_num, drop_rate=drop_rate
+            q_dim=q_dim, k_dim=k_dim, v_dim=v_dim, head_num=head_num, drop_rate=drop_rate, visualization=visualization
         )
         # Encoder-Decoder attention
         # Q는 위의 MMHA의 output, K,V는 encoder output
