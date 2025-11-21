@@ -75,9 +75,15 @@ def parse_args():
 
     parser.add_argument("--learning_rate", type=float, default=1)
     # parser.add_argument("--weight_decay", type=float, default=0.00005)
-    # parser.add_argument("--warmup_steps", type=int, default=4000)
-    parser.add_argument("--warmup_steps", type=int, default=16000)
+    # parser.add_argument("--warmup_steps", type=int, default=16000)
     # @@@ 전체 step의 5~10% (128만 문장을 batch_size 8 => 160000 스텝 => 10%는 16000)
+    # parser.add_argument("--warmup_steps", type=int, default=4000)
+    # @@@ 논문은 100000 step의 4% 설정 
+    # @@@ @@@ 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도 진행
+    # @@@ @@@ 대략 556 epoch (100000/180) 진행
+    parser.add_argument("--warmup_steps", type=int, default=30)
+    # @@@ 논문 장비 기준으로 현재 데이터셋은 한 epoch에 50 step
+    # @@@ ==> 3 epoch 학습 시 warmup을 15, 6 epoch 학습 시 30 (10% 기준)
     parser.add_argument("--max_epoch", type=int, default=10)
 
     parser.add_argument("--save_interval", type=int, default=1)
@@ -118,8 +124,15 @@ def rate(step, model_size, factor, warmup):
     """
     if step == 0:
         step = 1
+
+    # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
+    # @@@ 대략 556 epoch (100000/180) 진행
+    # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
+    # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
+    step_m = step / 3200
+
     return factor * (
-        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+        model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup ** (-1.5))
     )
 
 
@@ -139,11 +152,11 @@ def nan_hook(grad):
 
 # 파라메터에 그래디언트 클리핑 적용하는 hook
 def clip_grad_hook(grad):
-    max_norm = 1.0  # 원하는 클리핑 임계값
+    max_norm = 10.0  # 원하는 클리핑 임계값
 
-    if torch.isnan(grad).any():
-        print("NaN detected in gradient!")
-        raise ValueError("NaN in gradient!")
+    # if torch.isnan(grad).any():
+    #     print("NaN detected in gradient!")
+    #     raise ValueError("NaN in gradient!")
     
     norm = grad.norm()
     if norm > max_norm:
@@ -364,6 +377,7 @@ def train(
             # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
             weight = model.src_embed[0].embed.weight
             grad = weight.grad
+            norm = grad.norm()
 
             # with torch.no_grad():
             # @@@ 텐서.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
@@ -375,6 +389,7 @@ def train(
                 "embed_weight_max": weight.max().item(),
                 "embed_grad_mean": grad.mean().item() if grad is not None else None,
                 "embed_grad_max": grad.max().item() if grad is not None else None,
+                "embed_grad_norm": norm.item(),
             }
 
             wandb.log(wandb_step_dict)
