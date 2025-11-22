@@ -91,6 +91,9 @@ def parse_args():
     parser.add_argument("--total_steps", type=int, default=1000000)
     parser.add_argument("--decay_rate", type=float, default=0.7)
 
+    # gradient clipping 값
+    parser.add_argument("--max_norm", type=float, default=1.0)
+
     parser.add_argument("--max_epoch", type=int, default=10)
 
     parser.add_argument("--save_interval", type=int, default=1)
@@ -167,8 +170,20 @@ def nan_hook(grad):
         raise ValueError("NaN in gradient!")
 
 # 파라메터에 그래디언트 클리핑 적용하는 hook
-def clip_grad_hook(grad):
+def clip_grad_embed_hook(grad):
     max_norm = 10.0  # 원하는 클리핑 임계값
+
+    # if torch.isnan(grad).any():
+    #     print("NaN detected in gradient!")
+    #     raise ValueError("NaN in gradient!")
+    
+    norm = grad.norm()
+    if norm > max_norm:
+        grad = grad * (max_norm / norm)
+    return grad
+
+def clip_grad_hook(grad):
+    max_norm = 1.0  # 원하는 클리핑 임계값
 
     # if torch.isnan(grad).any():
     #     print("NaN detected in gradient!")
@@ -200,6 +215,7 @@ def train(
     warmup_steps,
     total_steps,
     decay_rate,
+    max_norm,
     max_epoch,
     val_interval,
     save_interval,
@@ -266,14 +282,21 @@ def train(
     #     if param.requires_grad:
     #         param.register_hook(nan_hook)
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # hook 사용 대신 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 사용으로 변경
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 임베딩 층의 가중치에 그래디언트 클리핑 hook 등록
-    # model.src_embed[0].embed.weight.register_hook(clip_grad_hook)
+    # model.src_embed[0].embed.weight.register_hook(clip_grad_embed_hook)
 
     # 모든 층의 가중치에 그래디언트 클리핑 hook 등록
-    for name, param in model.named_parameters():
-        # print(name)
-        if param.requires_grad:
-            param.register_hook(clip_grad_hook)
+    # @@@ 학습시간이 2.5 시간 정도 추가되는 문제가 있음
+    # for name, param in model.named_parameters():
+    #     if name == "src_embed.0.embed.weight":
+    #         # print("이건 이미 함")
+    #         continue
+    #     if param.requires_grad:
+    #         param.register_hook(clip_grad_hook)
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -405,6 +428,11 @@ def train(
             grad = weight.grad
             norm = grad.norm()
 
+            # 그래디언트 클리핑
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+
+            norm_clipped = grad.norm()
+
             # with torch.no_grad():
             # @@@ 텐서.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
             wandb_step_dict = {
@@ -416,9 +444,11 @@ def train(
                 "embed_grad_mean": grad.mean().item() if grad is not None else None,
                 "embed_grad_max": grad.max().item() if grad is not None else None,
                 "embed_grad_norm": norm.item(),
+                "embed_grad_norm_clipped": norm_clipped.item(),
             }
 
             wandb.log(wandb_step_dict)
+
 
             optimizer.step()
             scheduler.step()
