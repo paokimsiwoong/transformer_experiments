@@ -125,6 +125,10 @@ class Loaders():
         # BERTScore - 사전학습된 BERT 임베딩 기반으로 문장 수준 의미적 유사성을 평가
         # self.metric_bertscore = evaluate.load("bertscore")
 
+        self.metric_bleu_per_cat = []
+        self.metric_chrf_per_cat = []
+        self.metric_meteor_per_cat = []
+
     def add_batch_to_metrics(self, preds, labels):
 
         decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
@@ -168,6 +172,64 @@ class Loaders():
         # self.metric_ter = evaluate.load("ter")
         self.metric_meteor = evaluate.load("meteor")
         # self.metric_bertscore = evaluate.load("bertscore")
+
+        return results
+    
+    def init_metrics_per_cat(self):
+        for i in range(6):
+            # 문장에 총 6개의 카테고리 존재
+            self.metric_bleu_per_cat.append(evaluate.load("sacrebleu"))
+            self.metric_chrf_per_cat.append(evaluate.load("chrf"))
+            self.metric_meteor_per_cat.append(evaluate.load("meteor"))
+
+    
+    def add_batch_to_metrics_per_cat(self, preds, labels, cat_list):
+
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # Some simple post-processing
+        decoded_preds = [pred.strip() for pred in decoded_preds]
+        decoded_labels = [[label.strip()] for label in decoded_labels]
+
+        # 문장에 총 6개의 카테고리 존재
+        decoded_preds_per_cat = [[] for i in range(6)]
+        decoded_labels_per_cat = [[] for i in range(6)]
+
+        assert len(decoded_preds) == len(cat_list)
+
+        for i, cat in enumerate(cat_list):
+            decoded_preds_per_cat[cat].append(decoded_preds[i])
+            decoded_labels_per_cat[cat].append(decoded_labels[i])
+        
+        for i in range(6):
+            if decoded_preds_per_cat[i]:
+            # 배치에 특정 카테고리 문장이 없을 수도 있으므로 if로 확인
+                self.metric_bleu_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+                self.metric_chrf_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+                self.metric_meteor_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+
+
+    def compute_metrics_per_cat(self):
+        results = {}
+        print("computing bleu score per cat")
+        for i in range(6):
+            results[f'bleu_{i}'] = self.metric_bleu_per_cat[i].compute()['score']
+
+        print("computing chrf score per cat")
+        for i in range(6):
+            results[f'chrf_{i}'] = self.metric_chrf_per_cat[i].compute()['score']
+
+        print("computing meteor score per cat")
+        for i in range(6):
+            results[f'meteor_{i}'] = self.metric_meteor_per_cat[i].compute()['meteor']
+
+        print("metric per cat computings all done")
+
+        self.metric_bleu_per_cat = []
+        self.metric_chrf_per_cat = []
+        self.metric_meteor_per_cat = []
 
         return results
 

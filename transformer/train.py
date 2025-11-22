@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument("--label_smoothing", type=float, default=0.1)
 
 
-    parser.add_argument("--learning_rate", type=float, default=1)
+    # parser.add_argument("--learning_rate", type=float, default=1)
     # parser.add_argument("--weight_decay", type=float, default=0.00005)
     # parser.add_argument("--warmup_steps", type=int, default=16000)
     # @@@ 전체 step의 5~10% (128만 문장을 batch_size 8 => 160000 스텝 => 10%는 16000)
@@ -81,9 +81,16 @@ def parse_args():
     # @@@ 논문은 100000 step의 4% 설정 
     # @@@ @@@ 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도 진행
     # @@@ @@@ 대략 556 epoch (100000/180) 진행
-    parser.add_argument("--warmup_steps", type=int, default=30)
+    # parser.add_argument("--warmup_steps", type=int, default=30)
     # @@@ 논문 장비 기준으로 현재 데이터셋은 한 epoch에 50 step
     # @@@ ==> 3 epoch 학습 시 warmup을 15, 6 epoch 학습 시 30 (10% 기준)
+
+    # rate 함수 변경
+    parser.add_argument("--learning_rate", type=float, default=0.0005)
+    parser.add_argument("--warmup_steps", type=int, default=50000)
+    parser.add_argument("--total_steps", type=int, default=1000000)
+    parser.add_argument("--decay_rate", type=float, default=0.7)
+
     parser.add_argument("--max_epoch", type=int, default=10)
 
     parser.add_argument("--save_interval", type=int, default=1)
@@ -117,24 +124,33 @@ def set_seed(seed):
     random.seed(seed)
 
 # LambdaLR 스케쥴러에 사용하는 함수
-def rate(step, model_size, factor, warmup):
-    """
-    we have to default the step to 1 for LambdaLR function
-    to avoid zero raising to negative power.
-    """
-    if step == 0:
-        step = 1
+# def rate(step, model_size, factor, warmup):
+#     """
+#     we have to default the step to 1 for LambdaLR function
+#     to avoid zero raising to negative power.
+#     """
+#     if step == 0:
+#         step = 1
 
-    # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
-    # @@@ 대략 556 epoch (100000/180) 진행
-    # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
-    # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
-    step_m = step / 3200
+#     # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
+#     # @@@ 대략 556 epoch (100000/180) 진행
+#     # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
+#     # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
+#     step_m = step / 3200
 
-    return factor * (
-        model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup ** (-1.5))
-    )
+#     return factor * (
+#         model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup ** (-1.5))
+#     )
 
+def rate(step, warmup, total_steps, decay_rate):
+    if step < warmup:
+        # warmup 구간: 선형 증가
+        return float(step) / float(max(1, warmup))
+    else:
+        # warmup 이후: 지수 감쇠
+        decay_steps = total_steps - warmup
+        decay_progress = (step - warmup) / decay_steps
+        return decay_rate ** decay_progress
 
 # 파라메터에 NaN이 있는지 확인하는 함수
 def check_nan_in_parameters(model):
@@ -182,6 +198,8 @@ def train(
     label_smoothing,
     learning_rate,
     warmup_steps,
+    total_steps,
+    decay_rate,
     max_epoch,
     val_interval,
     save_interval,
@@ -248,20 +266,28 @@ def train(
     #     if param.requires_grad:
     #         param.register_hook(nan_hook)
 
-    # 임베딩 층의 웨이트에 그래디언트 클리핑 hook 등록
-    model.src_embed[0].embed.weight.register_hook(clip_grad_hook)
+    # 임베딩 층의 가중치에 그래디언트 클리핑 hook 등록
+    # model.src_embed[0].embed.weight.register_hook(clip_grad_hook)
+
+    # 모든 층의 가중치에 그래디언트 클리핑 hook 등록
+    for name, param in model.named_parameters():
+        # print(name)
+        if param.requires_grad:
+            param.register_hook(clip_grad_hook)
 
     optimizer = torch.optim.Adam(
         model.parameters(),
-        # lr=learning_rate,
-        lr=1,
+        lr=learning_rate,
+        # lr=1,
         # betas=(0.9, 0.999),
         # annotated transformer 값 따라하기
         betas=(0.9, 0.98),
         eps=1e-9,
     )
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=1, warmup=warmup_steps))
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=1, warmup=warmup_steps))
+    # 새 rate 함수로 변경
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
 
     if resume_name:
         optimizer.load_state_dict(load_dict["optimizer_state_dict"])
@@ -398,8 +424,8 @@ def train(
             scheduler.step()
 
             # NaN값이 파라메터이 있는지 확인
-            # if check_nan_in_parameters(model):
-            #     raise ValueError("NaN detected in model parameters!")
+            if check_nan_in_parameters(model):
+                raise ValueError("NaN detected in model parameters!")
 
             
             # with torch.no_grad():
@@ -500,15 +526,15 @@ def train(
 
                     loaders.add_batch_to_metrics(preds, labels)
                 
-                result = loaders.compute_metrics()
+            result = loaders.compute_metrics()
 
-                val_bleu = result['bleu']
-                val_chrf = result['chrf']
-                # val_ter = result['ter']
-                val_meteor = result['meteor']
-                # val_bertscore_f1 = result['bertscore_f1']
-                # val_bertscore_precision = result['bertscore_precision']
-                # val_bertscore_recall = result['bertscore_recall']
+            val_bleu = result['bleu']
+            val_chrf = result['chrf']
+            # val_ter = result['ter']
+            val_meteor = result['meteor']
+            # val_bertscore_f1 = result['bertscore_f1']
+            # val_bertscore_precision = result['bertscore_precision']
+            # val_bertscore_recall = result['bertscore_recall']
 
             wandb_val_dict = {
                 "val_bleu": val_bleu,
@@ -592,6 +618,9 @@ def train(
 
     test_bleu = 0
 
+    # 카테고리별 메트릭 초기화
+    loaders.init_metrics_per_cat()
+
     model.eval()
 
     with torch.no_grad():
@@ -642,34 +671,37 @@ def train(
             # 이렇게 해야 문맥과 길이 등이 고려된 전체적인 BLEU 점수를 정확하게 측정할 수 있다
 
             loaders.add_batch_to_metrics(preds, labels)
+            loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
         
-        result = loaders.compute_metrics()
+    result = loaders.compute_metrics()
 
-        test_bleu = result['bleu']
-        test_chrf = result['chrf']
-        # test_ter = result['ter']
-        test_meteor = result['meteor']
-        # test_bertscore_f1 = result['bertscore_f1']
-        # test_bertscore_precision = result['bertscore_precision']
-        # test_bertscore_recall = result['bertscore_recall']
+    result_per_cat = loaders.compute_metrics_per_cat()
+
+    test_bleu = result['bleu']
+    test_chrf = result['chrf']
+    # test_ter = result['ter']
+    test_meteor = result['meteor']
+    # test_bertscore_f1 = result['bertscore_f1']
+    # test_bertscore_precision = result['bertscore_precision']
+    # test_bertscore_recall = result['bertscore_recall']
 
 
-        test_end = datetime.now()
-        test_time = test_end - test_start
-        test_time = str(test_time).split(".")[0]
-        print("".center(50, "-"))
-        print("".center(50, "-"))
-        print(
-            f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}"
-        )
-        print("".center(50, "-"))
-        print(f"test_bleu: {test_bleu}")
-        print(f"test_chrf: {test_chrf}")
-        # print(f"test_ter: {test_ter}")
-        print(f"test_meteor: {test_meteor}")
-        # print(f"test_bertscore_f1: {test_bertscore_f1}")
-        # print(f"test_bertscore_precision: {test_bertscore_precision}")
-        # print(f"test_bertscore_recall: {test_bertscore_recall}")
+    test_end = datetime.now()
+    test_time = test_end - test_start
+    test_time = str(test_time).split(".")[0]
+    print("".center(50, "-"))
+    print("".center(50, "-"))
+    print(
+        f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}"
+    )
+    print("".center(50, "-"))
+    print(f"test_bleu: {test_bleu}")
+    print(f"test_chrf: {test_chrf}")
+    # print(f"test_ter: {test_ter}")
+    print(f"test_meteor: {test_meteor}")
+    # print(f"test_bertscore_f1: {test_bertscore_f1}")
+    # print(f"test_bertscore_precision: {test_bertscore_precision}")
+    # print(f"test_bertscore_recall: {test_bertscore_recall}")
 
     wandb_test_dict = {
         # "test_loss": test_mean_loss,
@@ -681,6 +713,24 @@ def train(
         # "test_bertscore_precision": test_bertscore_precision,
         # "test_bertscore_recall": test_bertscore_recall,
     }
+
+    cat_names = ["구어체", "대화체", "문어체_뉴스", "문어체_한국문화", "문어체_조례", "문어체_지자체웹사이트"]
+    for i in range(6):
+        print("".center(50, "-"))
+        bleu_name = f'test_bleu_{i}_{cat_names[i]}'
+        bleu_key = f'bleu_{i}'
+        chrf_name = f'test_chrf_{i}_{cat_names[i]}'
+        chrf_key = f'chrf_{i}'
+        meteor_name = f'test_meteor_{i}_{cat_names[i]}'
+        meteor_key = f'meteor_{i}'
+        print(bleu_name + f": {result_per_cat[bleu_key]}")
+        print(chrf_name + f": {result_per_cat[chrf_key]}")
+        print(meteor_name + f": {result_per_cat[meteor_key]}")
+
+        wandb_test_dict[bleu_name] = result_per_cat[bleu_key]
+        wandb_test_dict[chrf_name] = result_per_cat[chrf_key]
+        wandb_test_dict[meteor_name] = result_per_cat[meteor_key]
+
 
     wandb.log(wandb_test_dict)
 
