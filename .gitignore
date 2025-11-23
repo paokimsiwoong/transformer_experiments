@@ -14,3 +14,7 @@ tokenizer_saves/
 wandb/
 
 test_*.ipynb
+
+uv_backups/
+
+attention_viz/

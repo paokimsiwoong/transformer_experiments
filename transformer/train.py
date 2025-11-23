@@ -19,6 +19,8 @@ from dataloader import Loaders
 from models import Transformer
 from loss import LabelSmoothing
 
+from visualize import visualize
+
 
 def parse_args():
     parser = ArgumentParser()
@@ -40,14 +42,24 @@ def parse_args():
         "--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/pths")
     )
 
+    # png 파일 저장 경로
+    parser.add_argument(
+        "--image_dir", type=str, default=os.environ.get("SM_IMAGE_DIR", "/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/attention_viz")
+    )
+   
+
     # resume 파일 이름
     parser.add_argument("--resume_name", type=str, default="")
 
     # random seed
     parser.add_argument("--seed", type=int, default=42)
 
+
+    # attention visualization 여부
+    parser.add_argument('--viz', action='store_true', default=False, help='enable visualization mode')
     # debug 여부
     parser.add_argument('--debug', action='store_true', default=False, help='enable debug mode')
+
 
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
@@ -73,9 +85,8 @@ def parse_args():
     parser.add_argument("--label_smoothing", type=float, default=0.1)
 
 
-    # parser.add_argument("--learning_rate", type=float, default=1)
-    # parser.add_argument("--weight_decay", type=float, default=0.00005)
-    # parser.add_argument("--warmup_steps", type=int, default=16000)
+    parser.add_argument("--learning_rate", type=float, default=1)
+    parser.add_argument("--warmup_steps", type=int, default=16000)
     # @@@ 전체 step의 5~10% (128만 문장을 batch_size 8 => 160000 스텝 => 10%는 16000)
     # parser.add_argument("--warmup_steps", type=int, default=4000)
     # @@@ 논문은 100000 step의 4% 설정 
@@ -85,11 +96,11 @@ def parse_args():
     # @@@ 논문 장비 기준으로 현재 데이터셋은 한 epoch에 50 step
     # @@@ ==> 3 epoch 학습 시 warmup을 15, 6 epoch 학습 시 30 (10% 기준)
 
-    # rate 함수 변경
-    parser.add_argument("--learning_rate", type=float, default=0.0005)
-    parser.add_argument("--warmup_steps", type=int, default=50000)
-    parser.add_argument("--total_steps", type=int, default=1000000)
-    parser.add_argument("--decay_rate", type=float, default=0.7)
+    # # rate 함수 변경
+    # parser.add_argument("--learning_rate", type=float, default=0.0005)
+    # parser.add_argument("--warmup_steps", type=int, default=50000)
+    # parser.add_argument("--total_steps", type=int, default=1000000)
+    # parser.add_argument("--decay_rate", type=float, default=0.7)
 
     # gradient clipping 값
     parser.add_argument("--max_norm", type=float, default=1.0)
@@ -127,33 +138,41 @@ def set_seed(seed):
     random.seed(seed)
 
 # LambdaLR 스케쥴러에 사용하는 함수
-# def rate(step, model_size, factor, warmup):
-#     """
-#     we have to default the step to 1 for LambdaLR function
-#     to avoid zero raising to negative power.
-#     """
-#     if step == 0:
-#         step = 1
+def rate(step, model_size, factor, warmup):
+    """
+    we have to default the step to 1 for LambdaLR function
+    to avoid zero raising to negative power.
+    """
+    if step == 0:
+        step = 1
 
-#     # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
-#     # @@@ 대략 556 epoch (100000/180) 진행
-#     # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
-#     # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
-#     step_m = step / 3200
+    return factor * (
+        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+    )
 
-#     return factor * (
-#         model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup ** (-1.5))
-#     )
 
-def rate(step, warmup, total_steps, decay_rate):
-    if step < warmup:
-        # warmup 구간: 선형 증가
-        return float(step) / float(max(1, warmup))
-    else:
-        # warmup 이후: 지수 감쇠
-        decay_steps = total_steps - warmup
-        decay_progress = (step - warmup) / decay_steps
-        return decay_rate ** decay_progress
+    # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
+    # @@@ 대략 556 epoch (100000/180) 진행
+    # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
+    # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
+    # step_m = step / 3200
+    # warmup_m = warmup / 3200
+
+    # return factor * (
+    #     model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup_m ** (-1.5))
+    # )
+
+
+# def rate(step, warmup, total_steps, decay_rate):
+#     if step < warmup:
+#         # warmup 구간: 선형 증가
+#         return float(step) / float(max(1, warmup))
+#     else:
+#         # warmup 이후: 지수 감쇠
+#         decay_steps = total_steps - warmup
+#         decay_progress = (step - warmup) / decay_steps
+#         return decay_rate ** decay_progress
+
 
 # 파라메터에 NaN이 있는지 확인하는 함수
 def check_nan_in_parameters(model):
@@ -167,7 +186,7 @@ def check_nan_in_parameters(model):
 def nan_hook(grad):
     if torch.isnan(grad).any():
         print("NaN detected in gradient!")
-        raise ValueError("NaN in gradient!")
+        # raise ValueError("NaN in gradient!")
 
 # 파라메터에 그래디언트 클리핑 적용하는 hook
 def clip_grad_embed_hook(grad):
@@ -198,6 +217,7 @@ def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
     data_dir,
     model_dir,
+    image_dir,
     device,
     num_workers,
     batch_size,
@@ -213,8 +233,8 @@ def train(
     label_smoothing,
     learning_rate,
     warmup_steps,
-    total_steps,
-    decay_rate,
+    # total_steps,
+    # decay_rate,
     max_norm,
     max_epoch,
     val_interval,
@@ -224,6 +244,7 @@ def train(
     # mp,
     wandb_mode,
     wandb_run_name,
+    viz,
     debug,
 ):
     print("".center(50, "-"))
@@ -258,7 +279,7 @@ def train(
     print("".center(50, "-"))
 
     # Initialize the model
-    model = Transformer(src_len_vocab=len_vocab, tgt_len_vocab=len_vocab, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, h_dim=(q_dim * 4))
+    model = Transformer(src_len_vocab=len_vocab, tgt_len_vocab=len_vocab, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, h_dim=(q_dim * 4), visualization=viz)
     # KETI-AIR/ke-t5-base tokenizer의 한영 통합 토큰 종류 수는 64100 + 시작 토큰 1개 추가해서 = 64101개
 
     # 파라메터 초기화 임시 위치
@@ -281,6 +302,9 @@ def train(
     # for name, param in model.named_parameters():
     #     if param.requires_grad:
     #         param.register_hook(nan_hook)
+
+    # 임베딩 층의 가중치에 grad NaN 체크하는 hook 등록
+    model.src_embed[0].embed.weight.register_hook(nan_hook)
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # hook 사용 대신 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 사용으로 변경
@@ -308,9 +332,9 @@ def train(
         eps=1e-9,
     )
 
-    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=1, warmup=warmup_steps))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=1, warmup=warmup_steps))
     # 새 rate 함수로 변경
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
 
     if resume_name:
         optimizer.load_state_dict(load_dict["optimizer_state_dict"])
@@ -325,6 +349,8 @@ def train(
     print("".center(50, "-"))
     print("".center(50, "-"))
 
+    wandb_log_name = wandb_run_name + "_" + train_start
+
     wandb.init(
         project="transformer",
         entity="pao-kim-si-woong",
@@ -335,7 +361,7 @@ def train(
             "loss": "Label Smoothing",
             "notes": "transformer 한영 번역 실험",
         },
-        name=wandb_run_name + "_" + train_start,
+        name=wandb_log_name,
         mode=wandb_mode,
     )
 
@@ -361,7 +387,7 @@ def train(
         ):
             # batch는 'kor', 'en', 'cat', 'input_ids', 'attention_mask', 'decoder_inputs', 'decoder_mask', 'labels', 'ntokens'들을 키로 가지는 dict
 
-            # if step == 10:
+            # if step == 2:
             #     break
             
 
@@ -426,12 +452,16 @@ def train(
             # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
             weight = model.src_embed[0].embed.weight
             grad = weight.grad
-            norm = grad.norm()
+            grad_mean = grad.mean().item() if grad is not None else None
+            grad_max = grad.max().item() if grad is not None else None
+            norm = grad.norm().item() if grad is not None else None
 
             # 그래디언트 클리핑
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
-
-            norm_clipped = grad.norm()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            # 임베딩 층 max_norm 값 변경
+            # torch.nn.utils.clip_grad_norm_(model.src_embed.parameters(), max_norm=max_norm*5)
+            # torch.nn.utils.clip_grad_norm_(model.encoder.parameters(), max_norm=max_norm)
+            # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
 
             # with torch.no_grad():
             # @@@ 텐서.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
@@ -441,10 +471,12 @@ def train(
                 "learning_rate": scheduler.get_last_lr()[0],
                 "embed_weight_mean": weight.mean().item(),
                 "embed_weight_max": weight.max().item(),
-                "embed_grad_mean": grad.mean().item() if grad is not None else None,
-                "embed_grad_max": grad.max().item() if grad is not None else None,
-                "embed_grad_norm": norm.item(),
-                "embed_grad_norm_clipped": norm_clipped.item(),
+                "embed_grad_mean": grad_mean,
+                "embed_grad_mean_clipped": grad.mean().item(),
+                "embed_grad_max": grad_max,
+                "embed_grad_max_clipped": grad.max().item(),
+                "embed_grad_norm": norm,
+                "embed_grad_norm_clipped": grad.norm().item(),
             }
 
             wandb.log(wandb_step_dict)
@@ -454,8 +486,8 @@ def train(
             scheduler.step()
 
             # NaN값이 파라메터이 있는지 확인
-            if check_nan_in_parameters(model):
-                raise ValueError("NaN detected in model parameters!")
+            # if check_nan_in_parameters(model):
+            #     raise ValueError("NaN detected in model parameters!")
 
             
             # with torch.no_grad():
@@ -520,7 +552,7 @@ def train(
                 for step, batch_val in tqdm(
                     enumerate(loaders.loader_val), total=num_batches_val
                 ):  
-                    # if step == 10:
+                    # if step == 2:
                     #     break
 
                     inputs = batch_val['input_ids'].to(device)
@@ -666,7 +698,7 @@ def train(
         for step, batch_test in tqdm(
             enumerate(loaders.loader_test), total=num_batches_test
         ):
-            # if step == 10:
+            # if step == 2:
             #     break
 
             inputs = batch_test['input_ids'].to(device)
@@ -699,6 +731,9 @@ def train(
             # val_bleu += result['bleu']
             # bleu는 배치별로 계산하지 않고 전체 예측 문장과 전체 정답 문장을 모아서 한꺼번에 BLEU를 계산하는 방식을 사용
             # 이렇게 해야 문맥과 길이 등이 고려된 전체적인 BLEU 점수를 정확하게 측정할 수 있다
+            if viz:
+                if step % (num_batches_test // 3) == 0:
+                    visualize(image_dir, log_name=wandb_log_name, step=step, model=model, loaders=loaders, cat_list=batch_test['cat'], inputs=inputs, preds=preds, labels=labels, n_examples=2)
 
             loaders.add_batch_to_metrics(preds, labels)
             loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
