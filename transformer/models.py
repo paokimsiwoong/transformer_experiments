@@ -97,6 +97,7 @@ class Transformer(nn.Module):
         de_block_num=6,
         drop_rate=0.1,
         tie_weights=True,
+        decouple_src_tgt_embed=False,
         visualization=False,
     ):
         super().__init__()
@@ -142,14 +143,22 @@ class Transformer(nn.Module):
         # @@@ 사용하는 토크나이저가 소스/타겟 언어를 단일 vocab으로 토큰화 하는 경우도 weight tying 하는게 유리
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         if not tie_weights:
+            print("no weight tying")
             self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab)
+            print("".center(50, "-"))
         else:
+            print("weight tying")
             # self.src_embed[0].weight = self.tgt_embed[0].weight
             # @@@ embeddings.Embeddings 안의 self.embed가 nn.Embedding 이다
-            self.src_embed[0].embed.weight = self.tgt_embed[0].embed.weight
+            if not decouple_src_tgt_embed:
+                print("couple src tgt embed")
+                self.src_embed[0].embed.weight = self.tgt_embed[0].embed.weight
+            else:
+                print("decouple src tgt embed")
             self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
             # self.ffc.weight = self.tgt_embed[0].weight
             self.ffc.weight = self.tgt_embed[0].embed.weight
+            print("".center(50, "-"))
         # @@@ https://stackoverflow.com/questions/65456174/how-to-use-an-embedding-layer-as-a-linear-layer-in-pytorch
         # @@@ 논문처럼 pre-softmax linear의 weight는 nn.Embedding weight를 공유해서 사용
         # @@@ 여기서 = 는 reference => embed의 weight가 수정되면(역전파 등) ffc의 weight도 수정된다
