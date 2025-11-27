@@ -7,54 +7,17 @@ import torch
 import torch.nn as nn
 import wandb
 
+import numpy as np
+
 
 from arg_parser import parse_args
 
 from dataloader import Loaders
 from models import Transformer
 from loss import LabelSmoothing
-from loops import train_loop, val_loop, test_loop
+from loops import train_loop, val_loop, test_loop, train_loop_with_mp, val_loop_with_mp, test_loop_with_mp
 from hooks import nan_hook, clip_grad_hook, clip_grad_embed_hook
 from utils import set_seed, check_nan_in_parameters
-
-
-
-# LambdaLR 스케쥴러에 사용하는 함수
-def rate(step, model_size, factor, warmup):
-    """
-    we have to default the step to 1 for LambdaLR function
-    to avoid zero raising to negative power.
-    """
-    if step == 0:
-        step = 1
-
-    return factor * (
-        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
-    )
-
-
-    # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
-    # @@@ 대략 556 epoch (100000/180) 진행
-    # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
-    # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
-    # step_m = step / 3200
-    # warmup_m = warmup / 3200
-
-    # return factor * (
-    #     model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup_m ** (-1.5))
-    # )
-
-
-# def rate(step, warmup, total_steps, decay_rate):
-#     if step < warmup:
-#         # warmup 구간: 선형 증가
-#         return float(step) / float(max(1, warmup))
-#     else:
-#         # warmup 이후: 지수 감쇠
-#         decay_steps = total_steps - warmup
-#         decay_progress = (step - warmup) / decay_steps
-#         return decay_rate ** decay_progress
-
 
 def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
@@ -66,6 +29,7 @@ def train(
     batch_size,
     val_num_workers,
     val_batch_size,
+    test_batch_size,
     max_token_length,
     q_dim,
     weight_tying,
@@ -86,7 +50,7 @@ def train(
     save_interval,
     resume_name,
     seed,
-    # mp,
+    mp,
     wandb_mode,
     wandb_run_name,
     viz,
@@ -117,7 +81,7 @@ def train(
     # counter = 0
 
     # 데이터셋
-    loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=val_batch_size, val_num_workers=val_num_workers, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, seed=seed)
+    loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, seed=seed)
 
     data_load_end = datetime.now()
     data_load_time = data_load_end - time_start
@@ -184,10 +148,17 @@ def train(
     # 새 rate 함수로 변경
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
 
+    if mp:
+        # mixed precision scaler 초기화
+        mp_scaler = torch.amp.GradScaler()
+    
+    # pth 불러오는 경우
     if resume_name:
         optimizer.load_state_dict(load_dict["optimizer_state_dict"])
         scheduler.load_state_dict(load_dict["scheduler_state_dict"])
-    #     scaler.load_state_dict(load_dict["scaler_state_dict"])
+        if mp:
+            mp_scaler.load_state_dict(load_dict["mp_scaler_state_dict"])
+
 
     criterion = LabelSmoothing(size=len_vocab, padding_idx=padding_idx, smoothing=label_smoothing)
 
@@ -215,22 +186,36 @@ def train(
 
     wandb.watch((model,))
 
-    # best_loss = np.inf
-    best_bleu = 0
+    best_loss = np.inf
+    # best_bleu = 0
 
     for epoch in range(max_epoch):
 
         epoch_start = datetime.now()
 
-        epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop(
-            loaders,
-            model,
-            criterion,
-            optimizer,
-            scheduler,
-            device,
-            train_break,
-        )
+        if mp:
+            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop_with_mp(
+                loaders,
+                model,
+                criterion,
+                optimizer,
+                scheduler,
+                mp_scaler,
+                device,
+                wandb_mode,
+                train_break,
+            )
+        else:
+            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop(
+                loaders,
+                model,
+                criterion,
+                optimizer,
+                scheduler,
+                device,
+                wandb_mode,
+                train_break,
+            )
 
         wandb_epoch_dict = {
             "train_batch_loss": epoch_mean_batch_loss,
@@ -262,9 +247,10 @@ def train(
                 "model_state_dict": model.state_dict(),  # 모델의 state_dict 저장
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
-                # "scaler_state_dict": scaler.state_dict(),
                 "args": args_dicts,
             }
+            if mp:
+                states["mp_scaler_state_dict"] = mp_scaler.state_dict()
 
             torch.save(states, ckpt_fpath)
 
@@ -276,30 +262,31 @@ def train(
             print(f"Start validation #{epoch+1:2d}")
             val_start = datetime.now()
             
-            result, val_total_tokens = val_loop(
-                loaders,
-                model,
-                device,
-                val_break,
-            )
+            if mp:
+                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens = val_loop_with_mp(
+                    loaders,
+                    model,
+                    criterion,
+                    device,
+                    wandb_mode,
+                    val_break,
+                )
+            else:
+                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens = val_loop(
+                    loaders,
+                    model,
+                    criterion,
+                    device,
+                    wandb_mode,
+                    val_break,
+                )
 
-            val_bleu = result['bleu']
-            val_chrf = result['chrf']
-            # val_ter = result['ter']
-            val_meteor = result['meteor']
-            # val_bertscore_f1 = result['bertscore_f1']
-            # val_bertscore_precision = result['bertscore_precision']
-            # val_bertscore_recall = result['bertscore_recall']
 
             wandb_val_dict = {
-                "val_bleu": val_bleu,
-                "val_chrf": val_chrf,
-                # "val_ter": val_ter,
-                "val_meteor": val_meteor,
-                # "val_bertscore_f1": val_bertscore_f1,
-                # "val_bertscore_precision": val_bertscore_precision,
-                # "val_bertscore_recall": val_bertscore_recall,
+                "val_batch_loss": val_mean_batch_loss,
+                "val_token_loss": val_mean_token_loss,
             }
+
 
             wandb.log(wandb_val_dict)
 
@@ -312,30 +299,31 @@ def train(
                 f"==>> epoch {epoch+1} validation time: {val_time}\nval_total_tokens: {val_total_tokens}"
             )
             print("".center(50, "-"))
-            print(f"val_bleu: {val_bleu}")
-            print(f"val_chrf: {val_chrf}")
-            # print(f"val_ter: {val_ter}")
-            print(f"val_meteor: {val_meteor}")
-            # print(f"val_bertscore_f1: {val_bertscore_f1}")
-            # print(f"val_bertscore_precision: {val_bertscore_precision}")
-            # print(f"val_bertscore_recall: {val_bertscore_recall}")
+            print(
+                f"val_mean_batch_loss: {round(val_mean_batch_loss,4)}\n val_mean_token_loss: {round(val_mean_token_loss,4)}"
+            )
 
-            if best_bleu < val_bleu:
+            if best_loss > val_mean_token_loss:
                 print("".center(50, "-"))
                 print(
-                    f"Best bleu performance at epoch: {epoch + 1}, {best_bleu:.4f} -> {val_bleu:.4f}"
+                    f"Best val token loss performance at epoch: {epoch + 1}, {best_loss:.4f} -> {val_mean_token_loss:.4f}"
                 )
                 print(f"Save model in {model_dir}")
                 states = {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),  # 모델의 state_dict 저장
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "args": args_dicts,
                 }
+                if mp:
+                    states["mp_scaler_state_dict"] = mp_scaler.state_dict()
 
                 best_ckpt_fpath = osp.join(
-                    model_dir, f"transformer_koren_{train_start}_best_bleu.pth"
+                    model_dir, f"transformer_koren_{train_start}_best_val_token_loss.pth"
                 )
                 torch.save(states, best_ckpt_fpath)
-                best_bleu = val_bleu
+                best_loss = val_mean_token_loss
             #     counter = 0
             # else:
             #     counter += 1
@@ -362,15 +350,26 @@ def train(
     print(f"Start Test")
     test_start = datetime.now()
 
-    result, result_per_cat, test_total_tokens = test_loop(
-        loaders,
-        model,
-        device,
-        viz,
-        image_dir,
-        wandb_log_name,
-        test_break,
-    )
+    if mp:
+        result, result_per_cat, test_total_tokens = test_loop_with_mp(
+            loaders,
+            model,
+            device,
+            viz,
+            image_dir,
+            wandb_log_name,
+            test_break,
+        )
+    else:
+        result, result_per_cat, test_total_tokens = test_loop(
+            loaders,
+            model,
+            device,
+            viz,
+            image_dir,
+            wandb_log_name,
+            test_break,
+        )
 
     test_bleu = result['bleu']
     test_chrf = result['chrf']
@@ -442,6 +441,41 @@ def train(
     print("".center(50, "-"))
 
 
+# LambdaLR 스케쥴러에 사용하는 함수
+def rate(step, model_size, factor, warmup):
+    """
+    we have to default the step to 1 for LambdaLR function
+    to avoid zero raising to negative power.
+    """
+    if step == 0:
+        step = 1
+
+    return factor * (
+        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+    )
+
+
+    # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
+    # @@@ 대략 556 epoch (100000/180) 진행
+    # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
+    # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
+    # step_m = step / 3200
+    # warmup_m = warmup / 3200
+
+    # return factor * (
+    #     model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup_m ** (-1.5))
+    # )
+
+
+# def rate(step, warmup, total_steps, decay_rate):
+#     if step < warmup:
+#         # warmup 구간: 선형 증가
+#         return float(step) / float(max(1, warmup))
+#     else:
+#         # warmup 이후: 지수 감쇠
+#         decay_steps = total_steps - warmup
+#         decay_progress = (step - warmup) / decay_steps
+#         return decay_rate ** decay_progress
 
 
 def main(args):

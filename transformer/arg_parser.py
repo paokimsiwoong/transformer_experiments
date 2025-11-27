@@ -54,7 +54,8 @@ def parse_args():
     # gpu 개수 * 4로 설정하는 것이 좋다는 의견이 있음
 
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--val_batch_size", type=int, default=64)
+    parser.add_argument("--val_batch_size", type=int, default=32)
+    parser.add_argument("--test_batch_size", type=int, default=16)
     parser.add_argument("--val_num_workers", type=int, default=4)
 
     parser.add_argument("--max_token_length", type=int, default=512)
@@ -100,7 +101,7 @@ def parse_args():
 
     # ????
 
-    # parser.add_argument("--mp", action="store_false")
+    parser.add_argument('--mp', action='store_true', default=False, help='enable mixed precision mode')
     # https://stackoverflow.com/questions/60999816/argparse-not-parsing-boolean-arguments
     # mixed precision 사용할 지 여부
 
