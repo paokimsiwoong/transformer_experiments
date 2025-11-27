@@ -238,7 +238,7 @@ def train(
             f"mean_batch_loss: {round(epoch_mean_batch_loss,4)}\n mean_token_loss: {round(epoch_mean_token_loss,4)}"
         )
 
-        if (epoch + 1) % save_interval == 0:
+        if (epoch + 1) % save_interval == 0 and not train_break:
             
             ckpt_fpath = osp.join(model_dir, f"transformer_koren_{train_start}_latest.pth")
 
@@ -303,7 +303,7 @@ def train(
                 f"val_mean_batch_loss: {round(val_mean_batch_loss,4)}\n val_mean_token_loss: {round(val_mean_token_loss,4)}"
             )
 
-            if best_loss > val_mean_token_loss:
+            if best_loss > val_mean_token_loss and not val_break:
                 print("".center(50, "-"))
                 print(
                     f"Best val token loss performance at epoch: {epoch + 1}, {best_loss:.4f} -> {val_mean_token_loss:.4f}"
@@ -398,7 +398,6 @@ def train(
     # print(f"test_bertscore_recall: {test_bertscore_recall}")
 
     wandb_test_dict = {
-        # "test_loss": test_mean_loss,
         "test_bleu": test_bleu,
         "test_chrf": test_chrf,
         # "test_ter": test_ter,
@@ -417,13 +416,25 @@ def train(
         chrf_key = f'chrf_{i}'
         meteor_name = f'test_meteor_{i}_{cat_names[i]}'
         meteor_key = f'meteor_{i}'
+        # bert_f1_name = f'test_bertscore_f1_{i}_{cat_names[i]}'
+        # bert_f1_key = f'bertscore_f1_{i}'
+        # bert_precision_name = f'test_bertscore_precision_{i}_{cat_names[i]}'
+        # bert_precision_key = f'bertscore_precision_{i}'
+        # bert_recall_name = f'test_bertscore_recall_{i}_{cat_names[i]}'
+        # bert_recall_key = f'bertscore_recall_{i}'
         print(bleu_name + f": {result_per_cat[bleu_key]}")
         print(chrf_name + f": {result_per_cat[chrf_key]}")
         print(meteor_name + f": {result_per_cat[meteor_key]}")
+        # print(bert_f1_name + f": {result_per_cat[bert_f1_key]}")
+        # print(bert_precision_name + f": {result_per_cat[bert_precision_key]}")
+        # print(bert_recall_name + f": {result_per_cat[bert_recall_key]}")
 
         wandb_test_dict[bleu_name] = result_per_cat[bleu_key]
         wandb_test_dict[chrf_name] = result_per_cat[chrf_key]
         wandb_test_dict[meteor_name] = result_per_cat[meteor_key]
+        # wandb_test_dict[bert_f1_name] = result_per_cat[bert_f1_key]
+        # wandb_test_dict[bert_precision_name] = result_per_cat[bert_precision_key]
+        # wandb_test_dict[bert_recall_name] = result_per_cat[bert_recall_key]
 
 
     wandb.log(wandb_test_dict)

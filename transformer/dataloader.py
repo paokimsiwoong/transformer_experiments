@@ -128,6 +128,7 @@ class Loaders():
         self.metric_bleu_per_cat = []
         self.metric_chrf_per_cat = []
         self.metric_meteor_per_cat = []
+        # self.metric_bertscore_per_cat = []
 
     def add_batch_to_metrics(self, preds, labels):
 
@@ -181,6 +182,7 @@ class Loaders():
             self.metric_bleu_per_cat.append(evaluate.load("sacrebleu"))
             self.metric_chrf_per_cat.append(evaluate.load("chrf"))
             self.metric_meteor_per_cat.append(evaluate.load("meteor"))
+            # self.metric_bertscore_per_cat.append(evaluate.load("bertscore"))
 
     
     def add_batch_to_metrics_per_cat(self, preds, labels, cat_list):
@@ -209,6 +211,7 @@ class Loaders():
                 self.metric_bleu_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
                 self.metric_chrf_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
                 self.metric_meteor_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+                # self.metric_bertscore_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
 
 
     def compute_metrics_per_cat(self):
@@ -225,11 +228,19 @@ class Loaders():
         for i in range(6):
             results[f'meteor_{i}'] = self.metric_meteor_per_cat[i].compute()['meteor']
 
+        # print("computing bert score per cat")
+        # for i in range(6):
+        #     bertscore_res = self.metric_bertscore_per_cat[i].compute(lang="en")  # 사용할 언어 지정
+        #     results['bertscore_f1_{i}'] = bertscore_res['f1'][0]
+        #     results['bertscore_precision_{i}'] = bertscore_res['precision'][0]
+        #     results['bertscore_recall_{i}'] = bertscore_res['recall'][0]
+
         print("metric per cat computings all done")
 
         self.metric_bleu_per_cat = []
         self.metric_chrf_per_cat = []
         self.metric_meteor_per_cat = []
+        # self.metric_bertscore_per_cat = []
 
         return results
 

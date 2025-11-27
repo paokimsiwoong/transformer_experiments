@@ -55,7 +55,7 @@ def parse_args():
 
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_batch_size", type=int, default=32)
-    parser.add_argument("--test_batch_size", type=int, default=16)
+    parser.add_argument("--test_batch_size", type=int, default=32)
     parser.add_argument("--val_num_workers", type=int, default=4)
 
     parser.add_argument("--max_token_length", type=int, default=512)
