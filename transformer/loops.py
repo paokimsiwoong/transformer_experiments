@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from dataloader import Loaders
 from visualize import visualize
+from utils import check_nan_in_parameters
 
 
 def train_loop(
@@ -19,6 +20,7 @@ def train_loop(
         device,
         wandb_mode,
         train_break=False,
+        debug=False,
     ):
 
     model.train()
@@ -135,9 +137,10 @@ def train_loop(
         optimizer.step()
         scheduler.step()
 
-        # NaN값이 파라메터이 있는지 확인
-        # if check_nan_in_parameters(model):
-        #     raise ValueError("NaN detected in model parameters!")
+        if debug:
+            # NaN값이 파라메터이 있는지 확인
+            if check_nan_in_parameters(model):
+                raise ValueError("NaN detected in model parameters!")
 
         # with torch.no_grad():
         # @@@ loss.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
@@ -157,7 +160,7 @@ def val_loop(
         model,
         criterion,
         device,
-        wandb_mode,
+        # wandb_mode,
         val_break=False,
     ):
 
@@ -200,18 +203,18 @@ def val_loop(
             # labels는 (b * tgt_seq_len)로 변경 후 입력
             loss = criterion(out.contiguous().view(-1, out.size(-1)), labels.contiguous().view(-1))
 
-            normalized_loss = loss / batch_val_ntokens
+            # normalized_loss = loss / batch_val_ntokens
 
             loss_value = loss.item()
-            normalized_loss_value = normalized_loss.item()
+            # normalized_loss_value = normalized_loss.item()
 
-            if wandb_mode != "disabled":
-                wandb_val_step_dict = {
-                    "val_step_total_loss": loss_value,
-                    "val_step_token_loss": normalized_loss_value,
-                }
+            # if wandb_mode != "disabled":
+            #     wandb_val_step_dict = {
+            #         "val_step_total_loss": loss_value,
+            #         "val_step_token_loss": normalized_loss_value,
+            #     }
 
-                wandb.log(wandb_val_step_dict)
+            #     wandb.log(wandb_val_step_dict)
 
             val_loss += loss_value
         
@@ -306,6 +309,7 @@ def train_loop_with_mp(
         device,
         wandb_mode,
         train_break=False,
+        debug=False,
     ):
 
     model.train()
@@ -435,9 +439,10 @@ def train_loop_with_mp(
         mp_scaler.update()
         scheduler.step()
 
-        # NaN값이 파라메터이 있는지 확인
-        # if check_nan_in_parameters(model):
-        #     raise ValueError("NaN detected in model parameters!")
+        if debug:
+            # NaN값이 파라메터이 있는지 확인
+            if check_nan_in_parameters(model):
+                raise ValueError("NaN detected in model parameters!")
 
         # with torch.no_grad():
         # @@@ loss.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
@@ -457,7 +462,7 @@ def val_loop_with_mp(
         model,
         criterion,
         device,
-        wandb_mode,
+        # wandb_mode,
         val_break=False,
     ):
 
@@ -501,18 +506,18 @@ def val_loop_with_mp(
                 # labels는 (b * tgt_seq_len)로 변경 후 입력
                 loss = criterion(out.contiguous().view(-1, out.size(-1)), labels.contiguous().view(-1))
 
-                normalized_loss = loss / batch_val_ntokens
+                # normalized_loss = loss / batch_val_ntokens
 
             loss_value = loss.item()
-            normalized_loss_value = normalized_loss.item()
+            # normalized_loss_value = normalized_loss.item()
 
-            if wandb_mode != "disabled":
-                wandb_val_step_dict = {
-                    "val_step_total_loss": loss_value,
-                    "val_step_token_loss": normalized_loss_value,
-                }
+            # if wandb_mode != "disabled":
+            #     wandb_val_step_dict = {
+            #         "val_step_total_loss": loss_value,
+            #         "val_step_token_loss": normalized_loss_value,
+            #     }
 
-                wandb.log(wandb_val_step_dict)
+            #     wandb.log(wandb_val_step_dict)
 
             val_loss += loss_value
         

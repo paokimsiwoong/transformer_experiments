@@ -110,10 +110,11 @@ def train(
 
     model.to(device)
 
-    # 모든 파라미터에 grad NaN 체크하는 hook 등록
-    # for name, param in model.named_parameters():
-    #     if param.requires_grad:
-    #         param.register_hook(nan_hook)
+    if debug:
+        # 모든 파라미터에 grad NaN 체크하는 hook 등록
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                param.register_hook(nan_hook)
 
     # 임베딩 층의 가중치에 grad NaN 체크하는 hook 등록
     # model.src_embed[0].embed.weight.register_hook(nan_hook)
@@ -204,6 +205,7 @@ def train(
                 device,
                 wandb_mode,
                 train_break,
+                debug,
             )
         else:
             epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop(
@@ -215,6 +217,7 @@ def train(
                 device,
                 wandb_mode,
                 train_break,
+                debug,
             )
 
         wandb_epoch_dict = {
@@ -268,7 +271,7 @@ def train(
                     model,
                     criterion,
                     device,
-                    wandb_mode,
+                    # wandb_mode,
                     val_break,
                 )
             else:
@@ -277,7 +280,7 @@ def train(
                     model,
                     criterion,
                     device,
-                    wandb_mode,
+                    # wandb_mode,
                     val_break,
                 )
 
