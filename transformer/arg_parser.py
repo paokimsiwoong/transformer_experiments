@@ -75,6 +75,7 @@ def parse_args():
 
 
     parser.add_argument("--learning_rate", type=float, default=1)
+    parser.add_argument("--learning_factor", type=float, default=1)
     parser.add_argument("--warmup_steps", type=int, default=16000)
     # @@@ 전체 step의 5~10% (128만 문장을 batch_size 8 => 160000 스텝 => 10%는 16000)
     # parser.add_argument("--warmup_steps", type=int, default=4000)

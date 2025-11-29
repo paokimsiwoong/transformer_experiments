@@ -6,6 +6,9 @@ def nan_hook(grad):
     if torch.isnan(grad).any():
         print("NaN detected in gradient!")
         # raise ValueError("NaN in gradient!")
+    if torch.isinf(grad).any():
+        print("inf detected in gradient!")
+        # raise ValueError("inf in gradient!")
 
 # 파라메터에 그래디언트 클리핑 적용하는 hook
 def clip_grad_embed_hook(grad):

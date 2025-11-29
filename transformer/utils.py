@@ -17,4 +17,8 @@ def check_nan_in_parameters(model):
         if torch.isnan(param).any():
             print(f"NaN found in parameter: {name}")
             return True
+        
+        if torch.isinf(param).any():
+            print(f"inf found in parameter: {name}")
+            return True
     return False

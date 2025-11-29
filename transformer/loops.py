@@ -1,6 +1,7 @@
 import torch
 
 import math
+import os.path as osp
 
 import wandb
 
@@ -19,6 +20,7 @@ def train_loop(
         scheduler,
         device,
         wandb_mode,
+        train_start,
         train_break=False,
         debug=False,
     ):
@@ -90,7 +92,35 @@ def train_loop(
             # ==> 짧은 문장보다 긴 문장이 많을 때 학습이 잘되므로 문장 길이마다 학습 정도가 불균형하게 됨
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-        assert not torch.isnan(loss), "Loss value is NaN!"
+        # assert not torch.isnan(loss), "Loss value is NaN!"
+        # assert not torch.isinf(loss), "Loss value is inf!"
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Loss value is NaN or inf!")
+            print("".center(50, "-"))
+            print("saving current states")
+            fpath = osp.join("/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/debug_saves", f"debug_{train_start}_latest.pth")
+
+            states = {
+                "batch": batch,
+                "inputs": inputs,
+                "gts": gts,
+                "labels": labels,
+                "x_masks": x_masks,
+                "gt_masks": gt_masks,
+                "out": out,
+                "loss": loss,
+                "model_state_dict": model.state_dict(),  # 모델의 state_dict 저장
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+            }
+
+            torch.save(states, fpath)
+            print("".center(50, "-"))
+            print("states saved")
+            print("".center(50, "-"))
+            raise ValueError("NaN or inf detected in loss!")
+        
 
         normalized_loss = loss / batch_ntokens
 
@@ -106,7 +136,26 @@ def train_loop(
         grad_mean = grad.mean().item() if grad is not None else None
         grad_max = grad.max().item() if grad is not None else None
         norm = grad.norm().item() if grad is not None else None
+        
+        weight_tgt = model.tgt_embed[0].embed.weight
+        grad_tgt = weight_tgt.grad
+        grad_mean_tgt = grad_tgt.mean().item() if grad_tgt is not None else None
+        grad_max_tgt = grad_tgt.max().item() if grad_tgt is not None else None
+        norm_tgt = grad_tgt.norm().item() if grad_tgt is not None else None
 
+        # 마지막 ffc 레이어도 확인
+        weight_ffc = model.ffc.weight
+        grad_ffc = weight_ffc.grad
+        grad_mean_ffc = grad_ffc.mean().item() if grad_ffc is not None else None
+        grad_max_ffc = grad_ffc.max().item() if grad_ffc is not None else None
+        norm_ffc = grad_ffc.norm().item() if grad_ffc is not None else None
+        if not model.tie_weights:
+            bias_ffc = model.ffc.bias
+            grad_ffc_bias = bias_ffc.grad
+            grad_mean_ffc_bias = grad_ffc_bias.mean().item() if grad_ffc_bias is not None else None
+            grad_max_ffc_bias = grad_ffc_bias.max().item() if grad_ffc_bias is not None else None
+            norm_ffc_bias = grad_ffc_bias.norm().item() if grad_ffc_bias is not None else None
+            
 
         # 그래디언트 클리핑
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
@@ -129,7 +178,23 @@ def train_loop(
                 # "embed_grad_max_clipped": grad.max().item(),
                 "embed_grad_norm": norm,
                 # "embed_grad_norm_clipped": grad.norm().item(),
+                "tgt_embed_weight_mean": weight_tgt.mean().item(),
+                "tgt_embed_weight_max": weight_tgt.max().item(),
+                "tgt_embed_grad_mean": grad_mean_tgt,
+                "tgt_embed_grad_max": grad_max_tgt,
+                "tgt_embed_grad_norm": norm_tgt,
+                "ffc_weight_mean": weight_ffc.mean().item(),
+                "ffc_weight_max": weight_ffc.max().item(),
+                "ffc_weight_grad_mean": grad_mean_ffc,
+                "ffc_weight_grad_max": grad_max_ffc,
+                "ffc_weight_grad_norm": norm_ffc,
             }
+            if not model.tie_weights:
+                wandb_step_dict["ffc_bias_mean"] = bias_ffc.mean().item()
+                wandb_step_dict["ffc_bias_max"] = bias_ffc.max().item()
+                wandb_step_dict["ffc_bias_grad_mean"] = grad_mean_ffc_bias
+                wandb_step_dict["ffc_bias_grad_max"] = grad_max_ffc_bias
+                wandb_step_dict["ffc_bias_grad_norm"] = norm_ffc_bias
 
             wandb.log(wandb_step_dict)
 

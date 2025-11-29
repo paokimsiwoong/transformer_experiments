@@ -41,6 +41,7 @@ def train(
     unk_idx,
     label_smoothing,
     learning_rate,
+    learning_factor,
     warmup_steps,
     # total_steps,
     # decay_rate,
@@ -145,7 +146,7 @@ def train(
         eps=1e-9,
     )
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=1, warmup=warmup_steps))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=learning_factor, warmup=warmup_steps))
     # 새 rate 함수로 변경
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
 
@@ -216,6 +217,7 @@ def train(
                 scheduler,
                 device,
                 wandb_mode,
+                train_start,
                 train_break,
                 debug,
             )
@@ -495,10 +497,10 @@ def rate(step, model_size, factor, warmup):
 def main(args):
     # debug를 위해 CUDA 호출을 CPU 코드와 동기화
     if args.__dict__['debug']:
-        print("debug mode")
+        print("debug mode enabled")
         os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    # else:
-    #     print("not debug")
+    else:
+        print("debug mode disabled")
 
     train(args.__dict__, **args.__dict__)
     # 입력 명령어 pth에 저장하기 위해 args.__dict__ 추가로 받기

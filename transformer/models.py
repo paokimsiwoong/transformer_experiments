@@ -112,6 +112,8 @@ class Transformer(nn.Module):
 
         self.tgt_len_vocab = tgt_len_vocab
 
+        self.tie_weights = tie_weights
+
         self.src_embed = nn.Sequential(embeddings.Embeddings(src_len_vocab, q_dim, padding_idx), pe.PositionalEncoding(d_model=q_dim, dropout_prob=drop_rate, max_len=max_len))
         self.tgt_embed = nn.Sequential(embeddings.Embeddings(tgt_len_vocab, q_dim, padding_idx), pe.PositionalEncoding(d_model=q_dim, dropout_prob=drop_rate, max_len=max_len))
         # num_embeddings = 단어 집합 개수 (len(vocab))

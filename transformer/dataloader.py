@@ -96,8 +96,8 @@ class Loaders():
                                 cetf,
                                 # lambda examples: convert_examples_to_features(examples, tokenizer=self.tokenizer, max_token_length=self.max_token_length),
                                 batched=True,
-                                # 이걸 쓰지 않으면 원 데이터 'en', 'kor', 'cat'가 남아서
-                                # 아래서 콜레이터가 패딩을 못해서 에러남
+                                # 원 데이터 'en', 'kor', 'cat' 등의 칼럼을 지우려면
+                                # remove_columns 인자 사용
                                 # remove_columns=dataset_dict["train"].column_names,
                                 num_proc=NUM_CPU)
 

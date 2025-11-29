@@ -9,6 +9,7 @@ my_real_dataset/
 transformer/data.csv
 transformer/data_old.csv
 pths/
+debug_saves/
 tokenizer_saves/
 
 wandb/
