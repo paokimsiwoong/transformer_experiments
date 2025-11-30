@@ -149,6 +149,7 @@ class MultiHeadAttention(nn.Module):
         self.make_O = nn.Linear(in_features=self.head_num * self.head_dim, out_features=q_dim)
         # self.head_dim = q_dim // head_num 이므로 나머지가 0이 아닐 경우 q_dim > self.head_num * self.head_dim
 
+        self.drop_rate = drop_rate
         self.dropout = nn.Dropout(p=drop_rate)
         # 논문과 동일하게 output에 dropout 적용
         # layernorm(sublayer_input + dropout(sublayer(sublayer_input)))
@@ -176,10 +177,13 @@ class MultiHeadAttention(nn.Module):
         # assert not torch.isnan(K).any(), "K value is NaN!"
         # assert not torch.isnan(V).any(), "V value is NaN!"
 
-        K_T = K.transpose(-2, -1)
+        # K_T = K.transpose(-2, -1)
+        K_t = K.transpose(-2, -1)
 
-        attend = (Q @ K_T) / np.sqrt(self.head_dim)
+        # attend = (Q @ K_T) / np.sqrt(self.head_dim)
+        attend = (Q @ K_t) / np.sqrt(self.head_dim)
         # Q@K^T와 scaling
+        # attend = torch.matmul(Q, K_t) / np.sqrt(self.head_dim)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # if mask: 를 쓰면 mask가 None이 아닐 때
@@ -226,6 +230,21 @@ class MultiHeadAttention(nn.Module):
 
         return out
 
+
+    def SDPA_new(self, Q, K, V, mask):
+        # Math 커널만 사용 (완전 결정론)
+        # with torch.backends.cuda.sdp_kernel(
+        #     enable_flash=False,      # FlashAttention 끄기
+        #     enable_math=True,        # Math 커널만 켜기
+        #     enable_mem_efficient=False  # MemoryEfficient 끄기
+        # ):
+        return F.scaled_dot_product_attention(
+            query=Q, key=K, value=V,
+            attn_mask=(mask==1),  #bool 타입으로 변경
+            dropout_p=0.0 if not self.training else self.drop_rate,
+            scale=1.0 / np.sqrt(self.head_dim)
+        )       
+
     def forward(self, Q, K, V, mask):
         b = Q.size(0)
         q_len = Q.size(1)
@@ -247,7 +266,11 @@ class MultiHeadAttention(nn.Module):
         V_ = V_.permute(0, 2, 1, 3)
         # (b, self.head_num, seq_length, self.head_dim)
 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         out = self.SDPA(Q_, K_, V_, mask)
+        # out = self.SDPA_new(Q_, K_, V_, mask)
+        # @@@ 최적화되어 더 빠른 F.scaled_dot_product_attention 사용
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # 4차원 tensor끼리 행렬곱은 앞 두차원(batch, head) 번호가 같은 2차원 행렬끼리의 곱
         # ex: Q = (b=16, h=8, Q_seq_length=30, h_dim=64)과 K^T = (b=16, h=8, h_dim=64, K_seq_length=50)를 곱하면 (Q @ K^T)
         #     같은 배치, 같은 head에 있는 30x64, 64x50 행렬이 곱해진다
