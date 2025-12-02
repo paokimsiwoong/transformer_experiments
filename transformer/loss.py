@@ -79,11 +79,15 @@ class LabelSmoothing(nn.Module):
         
         self.true_dist = true_dist
 
+        log_prob = F.log_softmax(x, dim=-1)
+
+        assert not torch.isinf(log_prob).any(), "log_prob value contain inf!"
+        assert not torch.isnan(log_prob).any(), "log_prob value contain NaN!"
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@ softmax 결과인 x에 0.0이 존재할 수 있어서 x.log() 사용 시 -inf 값이 나오는 문제가 있으므로 코드 변경
         # @@@ @@@ ==> 모델 forward 출력에 softmax를 제거하고 여기서 F.log_softmax() 사용
-        return self.criterion(F.log_softmax(x, dim=-1), true_dist.detach().clone())
+        return self.criterion(log_prob, true_dist.detach().clone())
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # 예측값 최종 계산에서 log softmax대신 그냥 softmax사용했으므로
         # x.log()입력

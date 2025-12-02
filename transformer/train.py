@@ -47,8 +47,9 @@ def train(
     # decay_rate,
     max_norm,
     max_epoch,
-    val_interval,
     save_interval,
+    val_interval,
+    test_interval,
     resume_name,
     seed,
     mp,
@@ -192,7 +193,9 @@ def train(
     # best_bleu = 0
 
     for epoch in range(max_epoch):
-
+        print("".center(50, "-"))
+        print("".center(50, "-"))
+        print(f"Start train #{epoch+1:2d}")
         epoch_start = datetime.now()
 
         if mp:
@@ -227,7 +230,8 @@ def train(
             "train_token_loss": epoch_mean_token_loss,
         }
 
-        wandb.log(wandb_epoch_dict)
+        if not train_break:
+            wandb.log(wandb_epoch_dict)
 
 
         train_end = datetime.now()
@@ -263,7 +267,8 @@ def train(
         if (epoch + 1) % val_interval == 0:
 
             # val 또는 test 과정에 원문, 번역문 정답, 번역문 예측 결과 저장하기
-
+            print("".center(50, "-"))
+            print("".center(50, "-"))
             print(f"Start validation #{epoch+1:2d}")
             val_start = datetime.now()
             
@@ -292,8 +297,8 @@ def train(
                 "val_token_loss": val_mean_token_loss,
             }
 
-
-            wandb.log(wandb_val_dict)
+            if not val_break:
+                wandb.log(wandb_val_dict)
 
             val_end = datetime.now()
             val_time = val_end - val_start
@@ -333,6 +338,102 @@ def train(
             # else:
             #     counter += 1
 
+        if (epoch + 1) % test_interval == 0 or (epoch + 1) == max_epoch:
+            print("".center(50, "-"))
+            print("".center(50, "-"))
+            print(f"Start Test #{epoch+1:2d}")
+            test_start = datetime.now()
+
+            if mp:
+                result, result_per_cat, test_total_tokens = test_loop_with_mp(
+                    loaders,
+                    model,
+                    device,
+                    viz,
+                    image_dir,
+                    wandb_log_name,
+                    test_break,
+                )
+            else:
+                result, result_per_cat, test_total_tokens = test_loop(
+                    loaders,
+                    model,
+                    device,
+                    viz,
+                    image_dir,
+                    wandb_log_name,
+                    test_break,
+                )
+
+            test_bleu = result['bleu']
+            test_chrf = result['chrf']
+            # test_ter = result['ter']
+            test_meteor = result['meteor']
+            # test_bertscore_f1 = result['bertscore_f1']
+            # test_bertscore_precision = result['bertscore_precision']
+            # test_bertscore_recall = result['bertscore_recall']
+
+
+            test_end = datetime.now()
+            test_time = test_end - test_start
+            test_time = str(test_time).split(".")[0]
+            print("".center(50, "-"))
+            print("".center(50, "-"))
+            print(
+                f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}"
+            )
+            print("".center(50, "-"))
+            print(f"test_bleu: {test_bleu}")
+            print(f"test_chrf: {test_chrf}")
+            # print(f"test_ter: {test_ter}")
+            print(f"test_meteor: {test_meteor}")
+            # print(f"test_bertscore_f1: {test_bertscore_f1}")
+            # print(f"test_bertscore_precision: {test_bertscore_precision}")
+            # print(f"test_bertscore_recall: {test_bertscore_recall}")
+
+            wandb_test_dict = {
+                "test_bleu": test_bleu,
+                "test_chrf": test_chrf,
+                # "test_ter": test_ter,
+                "test_meteor": test_meteor,
+                # "test_bertscore_f1": test_bertscore_f1,
+                # "test_bertscore_precision": test_bertscore_precision,
+                # "test_bertscore_recall": test_bertscore_recall,
+            }
+
+            cat_names = ["구어체", "대화체", "문어체_뉴스", "문어체_한국문화", "문어체_조례", "문어체_지자체웹사이트"]
+            for i in range(6):
+                print("".center(50, "-"))
+                bleu_name = f'test_bleu_{i}_{cat_names[i]}'
+                bleu_key = f'bleu_{i}'
+                chrf_name = f'test_chrf_{i}_{cat_names[i]}'
+                chrf_key = f'chrf_{i}'
+                meteor_name = f'test_meteor_{i}_{cat_names[i]}'
+                meteor_key = f'meteor_{i}'
+                # bert_f1_name = f'test_bertscore_f1_{i}_{cat_names[i]}'
+                # bert_f1_key = f'bertscore_f1_{i}'
+                # bert_precision_name = f'test_bertscore_precision_{i}_{cat_names[i]}'
+                # bert_precision_key = f'bertscore_precision_{i}'
+                # bert_recall_name = f'test_bertscore_recall_{i}_{cat_names[i]}'
+                # bert_recall_key = f'bertscore_recall_{i}'
+                print(bleu_name + f": {result_per_cat[bleu_key]}")
+                print(chrf_name + f": {result_per_cat[chrf_key]}")
+                print(meteor_name + f": {result_per_cat[meteor_key]}")
+                # print(bert_f1_name + f": {result_per_cat[bert_f1_key]}")
+                # print(bert_precision_name + f": {result_per_cat[bert_precision_key]}")
+                # print(bert_recall_name + f": {result_per_cat[bert_recall_key]}")
+
+                wandb_test_dict[bleu_name] = result_per_cat[bleu_key]
+                wandb_test_dict[chrf_name] = result_per_cat[chrf_key]
+                wandb_test_dict[meteor_name] = result_per_cat[meteor_key]
+                # wandb_test_dict[bert_f1_name] = result_per_cat[bert_f1_key]
+                # wandb_test_dict[bert_precision_name] = result_per_cat[bert_precision_key]
+                # wandb_test_dict[bert_recall_name] = result_per_cat[bert_recall_key]
+
+
+            wandb.log(wandb_test_dict)
+
+        
         epoch_end = datetime.now()
         epoch_time = epoch_end - epoch_start
         epoch_time = str(epoch_time).split(".")[0]
@@ -352,100 +453,7 @@ def train(
 
     # val 또는 test 과정에 원문, 번역문 정답, 번역문 예측 결과 저장하기
 
-    print(f"Start Test")
-    test_start = datetime.now()
 
-    if mp:
-        result, result_per_cat, test_total_tokens = test_loop_with_mp(
-            loaders,
-            model,
-            device,
-            viz,
-            image_dir,
-            wandb_log_name,
-            test_break,
-        )
-    else:
-        result, result_per_cat, test_total_tokens = test_loop(
-            loaders,
-            model,
-            device,
-            viz,
-            image_dir,
-            wandb_log_name,
-            test_break,
-        )
-
-    test_bleu = result['bleu']
-    test_chrf = result['chrf']
-    # test_ter = result['ter']
-    test_meteor = result['meteor']
-    # test_bertscore_f1 = result['bertscore_f1']
-    # test_bertscore_precision = result['bertscore_precision']
-    # test_bertscore_recall = result['bertscore_recall']
-
-
-    test_end = datetime.now()
-    test_time = test_end - test_start
-    test_time = str(test_time).split(".")[0]
-    print("".center(50, "-"))
-    print("".center(50, "-"))
-    print(
-        f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}"
-    )
-    print("".center(50, "-"))
-    print(f"test_bleu: {test_bleu}")
-    print(f"test_chrf: {test_chrf}")
-    # print(f"test_ter: {test_ter}")
-    print(f"test_meteor: {test_meteor}")
-    # print(f"test_bertscore_f1: {test_bertscore_f1}")
-    # print(f"test_bertscore_precision: {test_bertscore_precision}")
-    # print(f"test_bertscore_recall: {test_bertscore_recall}")
-
-    wandb_test_dict = {
-        "test_bleu": test_bleu,
-        "test_chrf": test_chrf,
-        # "test_ter": test_ter,
-        "test_meteor": test_meteor,
-        # "test_bertscore_f1": test_bertscore_f1,
-        # "test_bertscore_precision": test_bertscore_precision,
-        # "test_bertscore_recall": test_bertscore_recall,
-    }
-
-    cat_names = ["구어체", "대화체", "문어체_뉴스", "문어체_한국문화", "문어체_조례", "문어체_지자체웹사이트"]
-    for i in range(6):
-        print("".center(50, "-"))
-        bleu_name = f'test_bleu_{i}_{cat_names[i]}'
-        bleu_key = f'bleu_{i}'
-        chrf_name = f'test_chrf_{i}_{cat_names[i]}'
-        chrf_key = f'chrf_{i}'
-        meteor_name = f'test_meteor_{i}_{cat_names[i]}'
-        meteor_key = f'meteor_{i}'
-        # bert_f1_name = f'test_bertscore_f1_{i}_{cat_names[i]}'
-        # bert_f1_key = f'bertscore_f1_{i}'
-        # bert_precision_name = f'test_bertscore_precision_{i}_{cat_names[i]}'
-        # bert_precision_key = f'bertscore_precision_{i}'
-        # bert_recall_name = f'test_bertscore_recall_{i}_{cat_names[i]}'
-        # bert_recall_key = f'bertscore_recall_{i}'
-        print(bleu_name + f": {result_per_cat[bleu_key]}")
-        print(chrf_name + f": {result_per_cat[chrf_key]}")
-        print(meteor_name + f": {result_per_cat[meteor_key]}")
-        # print(bert_f1_name + f": {result_per_cat[bert_f1_key]}")
-        # print(bert_precision_name + f": {result_per_cat[bert_precision_key]}")
-        # print(bert_recall_name + f": {result_per_cat[bert_recall_key]}")
-
-        wandb_test_dict[bleu_name] = result_per_cat[bleu_key]
-        wandb_test_dict[chrf_name] = result_per_cat[chrf_key]
-        wandb_test_dict[meteor_name] = result_per_cat[meteor_key]
-        # wandb_test_dict[bert_f1_name] = result_per_cat[bert_f1_key]
-        # wandb_test_dict[bert_precision_name] = result_per_cat[bert_precision_key]
-        # wandb_test_dict[bert_recall_name] = result_per_cat[bert_recall_key]
-
-
-    wandb.log(wandb_test_dict)
-
-    print("".center(50, "-"))
-    print("".center(50, "-"))
 
     time_end = datetime.now()
     total_time = time_end - time_start

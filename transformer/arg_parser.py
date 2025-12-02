@@ -99,6 +99,7 @@ def parse_args():
 
     parser.add_argument("--save_interval", type=int, default=1)
     parser.add_argument("--val_interval", type=int, default=1)
+    parser.add_argument("--test_interval", type=int, default=3)
 
     # ????
 

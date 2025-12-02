@@ -245,7 +245,7 @@ class MultiHeadAttention(nn.Module):
             scale=1.0 / np.sqrt(self.head_dim)
         )       
 
-    def forward(self, Q, K, V, mask):
+    def forward(self, Q, K, V, mask, testing=False):
         b = Q.size(0)
         q_len = Q.size(1)
         k_len = K.size(1)
@@ -267,8 +267,12 @@ class MultiHeadAttention(nn.Module):
         # (b, self.head_num, seq_length, self.head_dim)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        out = self.SDPA(Q_, K_, V_, mask)
-        # out = self.SDPA_new(Q_, K_, V_, mask)
+        out = None
+        if self.visualization and testing:
+            # attention 값 저장하려면 F.scaled_dot_product_attention 사용 불가
+            out = self.SDPA(Q_, K_, V_, mask)
+        else:
+            out = self.SDPA_new(Q_, K_, V_, mask)
         # @@@ 최적화되어 더 빠른 F.scaled_dot_product_attention 사용
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # 4차원 tensor끼리 행렬곱은 앞 두차원(batch, head) 번호가 같은 2차원 행렬끼리의 곱
@@ -347,7 +351,7 @@ class EncodingBlock(nn.Module):
         self.LN1 = nn.LayerNorm(q_dim)
         self.LN2 = nn.LayerNorm(q_dim)
 
-    def forward(self, Q, mask):
+    def forward(self, Q, mask, testing=False):
         # @@@ pad 부분과 실제 단어 사이에 attention을 0으로 mask하는 mask 필수?
         # out1 = self.LN1(Q + self.MHA(Q, Q, Q, mask))
         # self attention이므로 input 하나로 Q,K,V 전부 생성
@@ -360,7 +364,7 @@ class EncodingBlock(nn.Module):
 
         normalized = self.LN1(Q)
 
-        out1 = Q + self.MHA(normalized, normalized, normalized, mask)
+        out1 = Q + self.MHA(normalized, normalized, normalized, mask, testing)
         out2 = out1 + self.FF(self.LN2(out1))
         return out2
 
@@ -385,7 +389,7 @@ class DecodingBlock(nn.Module):
         self.LN2 = nn.LayerNorm(q_dim)
         self.LN3 = nn.LayerNorm(q_dim)
 
-    def forward(self, Q, K, V, tgt_mask, src_mask):
+    def forward(self, Q, K, V, tgt_mask, src_mask, testing=False):
         # out1 = self.LN1(Q + self.MMHA(Q, Q, Q, tgt_mask))
         # Masked self-attention이므로 query, key, value 모두 Q
 
@@ -398,9 +402,9 @@ class DecodingBlock(nn.Module):
 
         normalized = self.LN1(Q)
 
-        out1 = Q + self.MMHA(normalized, normalized, normalized, tgt_mask)
+        out1 = Q + self.MMHA(normalized, normalized, normalized, tgt_mask, testing)
 
-        out2 = out1 + self.MHA(self.LN2(out1), K, V, src_mask)
+        out2 = out1 + self.MHA(self.LN2(out1), K, V, src_mask, testing)
 
         out3 = out2 + self.FF(self.LN3(out2))
 

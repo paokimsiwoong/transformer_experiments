@@ -27,11 +27,11 @@ class Encoder(nn.Module):
             ]
         )
 
-    def forward(self, Q, mask):
+    def forward(self, Q, mask, testing=False):
         out = Q
 
         for m in self.blocks:
-            out = m(out, mask)
+            out = m(out, mask, testing)
 
         return out
 
@@ -56,11 +56,12 @@ class Decoder(nn.Module):
         V,
         tgt_mask,
         src_mask,
+        testing=False,
     ):
         out = Q
 
         for m in self.blocks:
-            out = m(out, K, V, tgt_mask, src_mask)
+            out = m(out, K, V, tgt_mask, src_mask, testing)
 
         return out
 
@@ -184,7 +185,7 @@ class Transformer(nn.Module):
 
 
 
-    def forward(self, x, gt, x_mask, gt_mask):
+    def forward(self, x, gt, x_mask, gt_mask, testing=False):
         # x, gt는 embed 되기전 seq token id들을 담은 long tensor
         # (b, src_seq_len)
         # (b, tgt_seq_len)
@@ -202,7 +203,7 @@ class Transformer(nn.Module):
         # @@ batch안의 각 문장의 원래 길이는 다 다르지만 collate함수를 이용해 dataloader가 batch단위로 내보낼 때
         # @@ batch안의 가장 긴 문장의 길이를 기준으로 그보다 짧은 문장들은 다 padding을 추가해준다
 
-        out_en = self.encoder(Q_en, src_mask)
+        out_en = self.encoder(Q_en, src_mask, testing)
         # (b, src_seq_len, q_dim)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -219,7 +220,7 @@ class Transformer(nn.Module):
         # (b, tgt_seq_len, q_dim)
         # transformer 학습에는 teacher forcing 기법을 사용 => gt 입력
 
-        out_de = self.decoder(Q_de, out_en, out_en, tgt_mask, src_mask)
+        out_de = self.decoder(Q_de, out_en, out_en, tgt_mask, src_mask, testing)
         # decoding block 2번째 encoder-decoder attention의 Q,K,V는
         # Q: 1번 Masked self-attention output
         # K,V: encoder output
@@ -238,7 +239,7 @@ class Transformer(nn.Module):
         # return out
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     
-    def inference(self, x, x_mask, max_pred_len):
+    def inference(self, x, x_mask, max_pred_len, testing=False):
         # Greedy decoding
         # TODO: Beam search 구현
         
@@ -258,7 +259,7 @@ class Transformer(nn.Module):
         # @@ batch안의 각 문장의 원래 길이는 다 다르지만 collate함수를 이용해 dataloader가 batch단위로 내보낼 때
         # @@ batch안의 가장 긴 문장의 길이를 기준으로 그보다 짧은 문장들은 다 padding을 추가해준다
 
-        out_en = self.encoder(Q_en, src_mask)
+        out_en = self.encoder(Q_en, src_mask, testing)
         # (b, seq_len, q_dim)
 
         ys = torch.zeros(n_batch, 1, device=device).fill_(self.start_idx).type_as(x)
@@ -276,7 +277,7 @@ class Transformer(nn.Module):
             Q_de = self.tgt_embed(ys)
             # (b, seq_len, q_dim)
 
-            out_de = self.decoder(Q_de, out_en, out_en, tgt_mask, src_mask)
+            out_de = self.decoder(Q_de, out_en, out_en, tgt_mask, src_mask, testing)
             # decoding block 2번째 encoder-decoder attention의 Q,K,V는
             # Q: 1번 Masked self-attention output
             # K,V: encoder output
@@ -290,7 +291,8 @@ class Transformer(nn.Module):
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             # @@@ ffc linear에 들어가기 전에 미리 마지막 단어만 남기는게 계산 및 메모리 절약에 도움이 된다
             # # @@@ ffc linear에 매번 out_de 전체를 넣으면 메모리 초과 문제 발생
-            next_token_prob = self.softmax(self.ffc(out_de[:, -1, :]))
+            # next_token_prob = self.softmax(self.ffc(out_de[:, -1, :]))
+            next_token_prob = F.softmax(self.ffc(out_de[:, -1, :]), dim=-1)
             # 마지막 단어의 결과(dim=1(seq_len)의 마지막)가 새 단어 예측
             # out.size() = (b, tgt_len_vocab)
             # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
