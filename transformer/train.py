@@ -34,6 +34,8 @@ def train(
     q_dim,
     weight_tying,
     decouple_src_tgt_embed,
+    decouple_ffc_tgt_embed,
+    decouple_embed_ffc,
     len_vocab,
     start_idx,
     end_idx,
@@ -93,7 +95,23 @@ def train(
     print("".center(50, "-"))
 
     # Initialize the model
-    model = Transformer(src_len_vocab=len_vocab, tgt_len_vocab=len_vocab, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, q_dim=q_dim, k_dim=q_dim, v_dim=q_dim, h_dim=(q_dim * 4), visualization=viz, tie_weights=weight_tying, decouple_src_tgt_embed=decouple_src_tgt_embed)
+    model = Transformer(
+        src_len_vocab=len_vocab,
+        tgt_len_vocab=len_vocab,
+        start_idx=start_idx,
+        end_idx=end_idx,
+        padding_idx=padding_idx,
+        unk_idx=unk_idx,
+        q_dim=q_dim,
+        k_dim=q_dim,
+        v_dim=q_dim,
+        h_dim=(q_dim * 4),
+        visualization=viz,
+        tie_weights=weight_tying,
+        decouple_src_tgt_embed=decouple_src_tgt_embed,
+        decouple_ffc_tgt_embed=decouple_ffc_tgt_embed,
+        decouple_embed_ffc=decouple_embed_ffc,
+    )
     # KETI-AIR/ke-t5-base tokenizer의 한영 통합 토큰 종류 수는 64100 + 시작 토큰 1개 추가해서 = 64101개
 
     # 파라메터 초기화 임시 위치

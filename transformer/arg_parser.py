@@ -63,6 +63,8 @@ def parse_args():
 
     parser.add_argument('--weight_tying', action='store_false', default=True, help='enable weight tying')
     parser.add_argument('--decouple_src_tgt_embed', action='store_true', default=False, help='decouple src tgt embed weights')
+    parser.add_argument('--decouple_ffc_tgt_embed', action='store_true', default=False, help='decouple ffc tgt embed weights')
+    parser.add_argument('--decouple_embed_ffc', action='store_true', default=False, help='decouple embed ffc weights')
 
     parser.add_argument("--len_vocab", type=int, default=64101)
     parser.add_argument("--start_idx", type=int, default=64100)

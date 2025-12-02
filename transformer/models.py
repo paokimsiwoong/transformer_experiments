@@ -99,6 +99,8 @@ class Transformer(nn.Module):
         drop_rate=0.1,
         tie_weights=True,
         decouple_src_tgt_embed=False,
+        decouple_embed_ffc=False,
+        decouple_ffc_tgt_embed=False,
         visualization=False,
     ):
         super().__init__()
@@ -153,14 +155,26 @@ class Transformer(nn.Module):
             print("weight tying")
             # self.src_embed[0].weight = self.tgt_embed[0].weight
             # @@@ embeddings.Embeddings 안의 self.embed가 nn.Embedding 이다
-            if not decouple_src_tgt_embed:
-                print("couple src tgt embed")
+            if decouple_src_tgt_embed:
+                print("tying tgt embed and ffc")
+                self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
+                # self.ffc.weight = self.tgt_embed[0].weight
+                self.ffc.weight = self.tgt_embed[0].embed.weight
+            elif decouple_ffc_tgt_embed:
+                print("tying src embed and ffc")
+                self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
+                # self.ffc.weight = self.tgt_embed[0].weight
+                self.ffc.weight = self.src_embed[0].embed.weight
+            elif decouple_embed_ffc:
+                print("tying src tgt embed")
                 self.src_embed[0].embed.weight = self.tgt_embed[0].embed.weight
+                self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab)
             else:
-                print("decouple src tgt embed")
-            self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
-            # self.ffc.weight = self.tgt_embed[0].weight
-            self.ffc.weight = self.tgt_embed[0].embed.weight
+                print("tying src tgt embed and ffc")
+                self.src_embed[0].embed.weight = self.tgt_embed[0].embed.weight
+                self.ffc = nn.Linear(in_features=q_dim, out_features=tgt_len_vocab, bias=False) # embedding에는 bias 없으므로 weight 공유할 ffc도 bias false
+                # self.ffc.weight = self.tgt_embed[0].weight
+                self.ffc.weight = self.tgt_embed[0].embed.weight
             print("".center(50, "-"))
         # @@@ https://stackoverflow.com/questions/65456174/how-to-use-an-embedding-layer-as-a-linear-layer-in-pytorch
         # @@@ 논문처럼 pre-softmax linear의 weight는 nn.Embedding weight를 공유해서 사용
