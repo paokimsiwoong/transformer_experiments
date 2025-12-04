@@ -149,7 +149,7 @@ def train_loop(
         grad_mean_ffc = grad_ffc.mean().item() if grad_ffc is not None else None
         grad_max_ffc = grad_ffc.max().item() if grad_ffc is not None else None
         norm_ffc = grad_ffc.norm().item() if grad_ffc is not None else None
-        if not model.tie_weights:
+        if model.ffc.bias is not None:
             bias_ffc = model.ffc.bias
             grad_ffc_bias = bias_ffc.grad
             grad_mean_ffc_bias = grad_ffc_bias.mean().item() if grad_ffc_bias is not None else None
@@ -189,7 +189,7 @@ def train_loop(
                 "ffc_weight_grad_max": grad_max_ffc,
                 "ffc_weight_grad_norm": norm_ffc,
             }
-            if not model.tie_weights:
+            if model.ffc.bias is not None:
                 wandb_step_dict["ffc_bias_mean"] = bias_ffc.mean().item()
                 wandb_step_dict["ffc_bias_max"] = bias_ffc.max().item()
                 wandb_step_dict["ffc_bias_grad_mean"] = grad_mean_ffc_bias
