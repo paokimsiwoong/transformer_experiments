@@ -61,10 +61,11 @@ def parse_args():
     parser.add_argument("--max_token_length", type=int, default=512)
     parser.add_argument("--q_dim", type=int, default=512)
 
-    parser.add_argument('--weight_tying', action='store_false', default=True, help='enable weight tying')
-    parser.add_argument('--decouple_src_tgt_embed', action='store_true', default=False, help='decouple src tgt embed weights')
-    parser.add_argument('--decouple_ffc_tgt_embed', action='store_true', default=False, help='decouple ffc tgt embed weights')
-    parser.add_argument('--decouple_embed_ffc', action='store_true', default=False, help='decouple embed ffc weights')
+    parser.add_argument('--weight_tying', type=str, default=os.environ.get("SM_WEIGHT_TYING", "NOTYING"))
+    # parser.add_argument('--weight_tying', action='store_false', default=True, help='enable weight tying')
+    # parser.add_argument('--decouple_src_tgt_embed', action='store_true', default=False, help='decouple src tgt embed weights')
+    # parser.add_argument('--decouple_ffc_tgt_embed', action='store_true', default=False, help='decouple ffc tgt embed weights')
+    # parser.add_argument('--decouple_embed_ffc', action='store_true', default=False, help='decouple embed ffc weights')
 
     parser.add_argument("--len_vocab", type=int, default=64101)
     parser.add_argument("--start_idx", type=int, default=64100)

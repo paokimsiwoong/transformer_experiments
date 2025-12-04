@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import random
 
+from enum import Enum
+
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -34,3 +36,12 @@ def check_nan_in_parameters(model):
             print(f"inf found in parameter: {name}")
             return True
     return False
+
+
+# 모델 가중치 공유 설정에 쓰이는 enum
+class WeightTying(Enum):
+    NOTYING = 0
+    TYINGALL = 1
+    TYINGSRCTGT = 2
+    TYINGTGTFFC = 3
+    TYINGSRCFFC = 4

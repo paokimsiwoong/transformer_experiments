@@ -17,7 +17,7 @@ from models import Transformer
 from loss import LabelSmoothing
 from loops import train_loop, val_loop, test_loop, train_loop_with_mp, val_loop_with_mp, test_loop_with_mp
 from hooks import nan_hook, clip_grad_hook, clip_grad_embed_hook
-from utils import set_seed, check_nan_in_parameters
+from utils import set_seed, check_nan_in_parameters, WeightTying
 
 def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
@@ -33,9 +33,9 @@ def train(
     max_token_length,
     q_dim,
     weight_tying,
-    decouple_src_tgt_embed,
-    decouple_ffc_tgt_embed,
-    decouple_embed_ffc,
+    # decouple_src_tgt_embed,
+    # decouple_ffc_tgt_embed,
+    # decouple_embed_ffc,
     len_vocab,
     start_idx,
     end_idx,
@@ -107,10 +107,11 @@ def train(
         v_dim=q_dim,
         h_dim=(q_dim * 4),
         visualization=viz,
-        tie_weights=weight_tying,
-        decouple_src_tgt_embed=decouple_src_tgt_embed,
-        decouple_ffc_tgt_embed=decouple_ffc_tgt_embed,
-        decouple_embed_ffc=decouple_embed_ffc,
+        weight_tying=WeightTying[weight_tying],
+        # tie_weights=weight_tying,
+        # decouple_src_tgt_embed=decouple_src_tgt_embed,
+        # decouple_ffc_tgt_embed=decouple_ffc_tgt_embed,
+        # decouple_embed_ffc=decouple_embed_ffc,
     )
     # KETI-AIR/ke-t5-base tokenizer의 한영 통합 토큰 종류 수는 64100 + 시작 토큰 1개 추가해서 = 64101개
 
