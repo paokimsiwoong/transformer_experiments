@@ -490,24 +490,35 @@ def rate(step, model_size, factor, warmup):
     we have to default the step to 1 for LambdaLR function
     to avoid zero raising to negative power.
     """
-    if step == 0:
-        step = 1
+    # if step == 0:
+    #     step = 1
 
-    return factor * (
-        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
-    )
+    # return factor * (
+    #     model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+    # )
 
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # @@@ 논문은 450만 문장을 각 step당 2만5천씩 한 epoch에 180 step 정도
     # @@@ 대략 556 epoch (100000/180) 진행
     # 현재 학습은 128만 문장을 batch 8로 대략 16만 step
     # 논문 장비 기준으로는 대략 50~51 step ==> step 비 3200
     # step_m = step / 3200
-    # warmup_m = warmup / 3200
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # @@@@@@ 계산 오류
+    # 배치 크기가 2만 5천인게 아니라 배치당 source 토큰 2만5천, target 토큰 2만 5천개
+    # 현재 학습 1281934문장의 총 tgt 토큰 개수 40586486 ==> 문장당 평균 31.66 토큰
+    # 배치 8 * 31.66 = 253.28
+    # 25000 / 253.28 ~= 98.705 ==> 대략 100배
+    step_m = step / 100
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-    # return factor * (
-    #     model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup_m ** (-1.5))
-    # )
+    if step_m < 1:
+        step_m = 1
+
+    return factor * (
+        model_size ** (-0.5) * min(step_m ** (-0.5), step_m * warmup ** (-1.5))
+    )
 
 
 # def rate(step, warmup, total_steps, decay_rate):
