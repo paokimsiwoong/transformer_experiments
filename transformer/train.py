@@ -36,15 +36,17 @@ def train(
     # decouple_src_tgt_embed,
     # decouple_ffc_tgt_embed,
     # decouple_embed_ffc,
-    len_vocab,
-    start_idx,
-    end_idx,
-    padding_idx,
-    unk_idx,
+    # len_vocab,
+    # start_idx,
+    # end_idx,
+    # padding_idx,
+    # unk_idx,
+    tokenizer,
     label_smoothing,
     learning_rate,
     learning_factor,
     warmup_steps,
+    adjusted,
     # total_steps,
     # decay_rate,
     max_norm,
@@ -85,7 +87,8 @@ def train(
     # counter = 0
 
     # 데이터셋
-    loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, seed=seed)
+    # loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, seed=seed)
+    loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers,  tokenizer=tokenizer, seed=seed)
 
     data_load_end = datetime.now()
     data_load_time = data_load_end - time_start
@@ -96,12 +99,12 @@ def train(
 
     # Initialize the model
     model = Transformer(
-        src_len_vocab=len_vocab,
-        tgt_len_vocab=len_vocab,
-        start_idx=start_idx,
-        end_idx=end_idx,
-        padding_idx=padding_idx,
-        unk_idx=unk_idx,
+        src_len_vocab=loaders.len_vocab,
+        tgt_len_vocab=loaders.len_vocab,
+        start_idx=loaders.start_idx,
+        end_idx=loaders.end_idx,
+        padding_idx=loaders.padding_idx,
+        unk_idx=loaders.unk_idx,
         q_dim=q_dim,
         k_dim=q_dim,
         v_dim=q_dim,
@@ -166,7 +169,12 @@ def train(
         eps=1e-9,
     )
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=learning_factor, warmup=warmup_steps))
+    if adjusted:
+        print("using adjusted rate func")
+    else:
+        print("using not-adjusted rate func")
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, model_size=q_dim, factor=learning_factor, warmup=warmup_steps, adjusted=adjusted))
     # 새 rate 함수로 변경
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda step: rate(step, warmup=warmup_steps, total_steps=total_steps, decay_rate=decay_rate))
 
@@ -182,7 +190,7 @@ def train(
             mp_scaler.load_state_dict(load_dict["mp_scaler_state_dict"])
 
 
-    criterion = LabelSmoothing(size=len_vocab, padding_idx=padding_idx, smoothing=label_smoothing)
+    criterion = LabelSmoothing(size=loaders.len_vocab, padding_idx=loaders.padding_idx, smoothing=label_smoothing)
 
     print(f"Start training..")
 
@@ -210,6 +218,8 @@ def train(
 
     best_loss = np.inf
     # best_bleu = 0
+    if resume_name:
+        best_loss = float(load_dict["best_val_token_loss"])
 
     for epoch in range(max_epoch):
         print("".center(50, "-"))
@@ -266,9 +276,10 @@ def train(
             f"mean_batch_loss: {round(epoch_mean_batch_loss,4)}\n mean_token_loss: {round(epoch_mean_token_loss,4)}"
         )
 
+        # if (epoch + 1) % save_interval == 0:
         if (epoch + 1) % save_interval == 0 and not train_break:
             
-            ckpt_fpath = osp.join(model_dir, f"transformer_koren_{train_start}_latest.pth")
+            ckpt_fpath = osp.join(model_dir, f"tf_koren_{wandb_log_name}_latest.pth")
 
             states = {
                 "epoch": epoch,
@@ -276,6 +287,7 @@ def train(
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
                 "args": args_dicts,
+                "best_val_token_loss": best_loss,
             }
             if mp:
                 states["mp_scaler_state_dict"] = mp_scaler.state_dict()
@@ -332,6 +344,7 @@ def train(
                 f"val_mean_batch_loss: {round(val_mean_batch_loss,4)}\n val_mean_token_loss: {round(val_mean_token_loss,4)}"
             )
 
+            # if best_loss > val_mean_token_loss:
             if best_loss > val_mean_token_loss and not val_break:
                 print("".center(50, "-"))
                 print(
@@ -344,12 +357,13 @@ def train(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "args": args_dicts,
+                    "best_val_token_loss": val_mean_token_loss,
                 }
                 if mp:
                     states["mp_scaler_state_dict"] = mp_scaler.state_dict()
 
                 best_ckpt_fpath = osp.join(
-                    model_dir, f"transformer_koren_{train_start}_best_val_token_loss.pth"
+                    model_dir, f"tf_koren_{wandb_log_name}_best_val_token_loss.pth"
                 )
                 torch.save(states, best_ckpt_fpath)
                 best_loss = val_mean_token_loss
@@ -485,17 +499,19 @@ def train(
 
 
 # LambdaLR 스케쥴러에 사용하는 함수
-def rate(step, model_size, factor, warmup):
+def rate(step, model_size, factor, warmup, adjusted):
     """
     we have to default the step to 1 for LambdaLR function
     to avoid zero raising to negative power.
     """
-    # if step == 0:
-    #     step = 1
 
-    # return factor * (
-    #     model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
-    # )
+    if not adjusted:
+        if step == 0:
+            step = 1
+
+        return factor * (
+            model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+        )
 
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@

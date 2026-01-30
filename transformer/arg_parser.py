@@ -67,11 +67,19 @@ def parse_args():
     # parser.add_argument('--decouple_ffc_tgt_embed', action='store_true', default=False, help='decouple ffc tgt embed weights')
     # parser.add_argument('--decouple_embed_ffc', action='store_true', default=False, help='decouple embed ffc weights')
 
-    parser.add_argument("--len_vocab", type=int, default=64101)
-    parser.add_argument("--start_idx", type=int, default=64100)
-    parser.add_argument("--end_idx", type=int, default=1)
-    parser.add_argument("--padding_idx", type=int, default=0)
-    parser.add_argument("--unk_idx", type=int, default=2)
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # parser.add_argument("--len_vocab", type=int, default=64101)
+    # parser.add_argument("--start_idx", type=int, default=64100)
+    # parser.add_argument("--end_idx", type=int, default=1)
+    # parser.add_argument("--padding_idx", type=int, default=0)
+    # parser.add_argument("--unk_idx", type=int, default=2)
+
+    # @@@ 토크나이저를 지정하면 토크나이저 별로 vocab 크기, 특수 토큰 idx 값이 정해지도록 변경
+    parser.add_argument("--tokenizer", type=str, default="KETI-AIR/ke-t5-base")
+    # 현재 
+    # KETI-AIR/ke-t5-base, Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b, LGAI-EXAONE/K-EXAONE-236B-A23B
+    # 3가지 종류 토크나이저 선택 가능
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
     parser.add_argument("--label_smoothing", type=float, default=0.1)
@@ -88,6 +96,8 @@ def parse_args():
     # parser.add_argument("--warmup_steps", type=int, default=30)
     # @@@ 논문 장비 기준으로 현재 데이터셋은 한 epoch에 50 step
     # @@@ ==> 3 epoch 학습 시 warmup을 15, 6 epoch 학습 시 30 (10% 기준)
+
+    parser.add_argument('--adjusted', action='store_true', default=False, help='enable adjusted rate func')
 
     # # rate 함수 변경
     # parser.add_argument("--learning_rate", type=float, default=0.0005)

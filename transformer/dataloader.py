@@ -26,17 +26,13 @@ class Loaders():
             batch_size_val = 4,
             batch_size_test = 4,
             val_num_workers = 4,
-            start_idx = 64100, 
-            end_idx = 1, 
-            padding_idx = 0, 
-            unk_idx = 2,
+            # start_idx = 64100, 
+            # end_idx = 1, 
+            # padding_idx = 0, 
+            # unk_idx = 2,
+            tokenizer = "KETI-AIR/ke-t5-base",
             seed = 42,
     ):
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.padding_idx = padding_idx
-        self.unk_idx = unk_idx
-
         # 1) 데이터셋 로드
         dataset = load_dataset("csv", data_files=data_path)['train']
         # AI hub 한국어-영어 번역(병렬) 말뭉치 데이터셋
@@ -75,10 +71,21 @@ class Loaders():
 
         # self.tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-ko-en")
         # @@@ 점포, 만료 등의 단어가 <unk>인 문제 발견 => 다른 토크나이저 사용?
-        self.tokenizer = AutoTokenizer.from_pretrained("KETI-AIR/ke-t5-base")
+        # self.tokenizer = AutoTokenizer.from_pretrained("KETI-AIR/ke-t5-base")
 
-        special_tokens_dict = {'bos_token': '<s>'}
-        self.tokenizer.add_special_tokens(special_tokens_dict)
+        # special_tokens_dict = {'bos_token': '<s>'}
+        # self.tokenizer.add_special_tokens(special_tokens_dict)
+
+        self.tokenizer = None
+        self.len_vocab = None
+        self.start_idx = None
+        self.end_idx = None
+        self.padding_idx = None
+        self.unk_idx = None
+
+        self.init_tokenizer(tokenizer)
+
+        print(f"==>> self.tokenizer name: {tokenizer}")
 
         print(f"==>> self.tokenizer.model_max_length: {self.tokenizer.model_max_length}")
 
@@ -129,6 +136,38 @@ class Loaders():
         self.metric_chrf_per_cat = []
         self.metric_meteor_per_cat = []
         # self.metric_bertscore_per_cat = []
+
+    def init_tokenizer(self, tokenizer):
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
+        match tokenizer:
+            case "KETI-AIR/ke-t5-base":
+                special_tokens_dict = {'bos_token': '<s>'}
+                self.tokenizer.add_special_tokens(special_tokens_dict)
+
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 64100
+                self.end_idx = 1
+                self.padding_idx = 0
+                self.unk_idx = 2
+            case "Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b":
+                special_tokens_dict = {'pad_token': '[PAD]'}
+                self.tokenizer.add_special_tokens(special_tokens_dict)
+
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 1
+                self.end_idx = 361
+                self.padding_idx = 0
+                self.unk_idx = 3
+            case "LGAI-EXAONE/K-EXAONE-236B-A23B":
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 1
+                self.end_idx = 53
+                self.padding_idx = 0
+                self.unk_idx = 3
+            case _:
+                raise ValueError
+
 
     def add_batch_to_metrics(self, preds, labels):
 
