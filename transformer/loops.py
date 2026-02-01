@@ -492,7 +492,7 @@ def train_loop_with_mp(
         # @@@ 앞에서 명시적으로 실행하면 파라메터 업데이트만 실행
         # @@@ @@@ unscale_ 주석 확인
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        
+
 
         # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
         weight = model.src_embed[0].embed.weight
@@ -593,12 +593,37 @@ def train_loop_with_mp(
         # 다시 나눈 다음에 step을 진행해 fp32와 동일한 스케일의 그래디언트로 step이 이뤄지게 한다
         mp_scaler.step(optimizer)
         mp_scaler.update()
-        scheduler.step()
-
         # @@@ mp_scaler.step(optimizer) 이후에 grad 값을 로그하면 
         # @@@ 이때는 이미 weight가 업데이트됐기 때문에, step 이후의 grad는 보통 의미가 없음
         # @@@ @@@ gradient clipping 타이밍은 이미 지나간 상태이고
         # @@@ @@@ 대부분 옵티마이저에서 grad를 건드리기 떄문에 실제 grad 값을 로깅할 수 없음
+
+        scheduler.step()
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # GradScaler.step(optimizer)는 scaling factor 조정 중인 초기에 gradient overflow가 발생하면 
+        # optimizer.step()을 건너뛸 수 있는데 그 때 scheduler.step()을 호출 하면
+        # scheduler.step()이 호출되지만 optimizer는 업데이트 안 된 상태라서
+        # UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. 
+        # In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  
+        # Failure to do this will result in PyTorch skipping the first value of the learning rate schedule.
+        # 라는 경고가 뜨게 된다
+        # @@@ 그러나 LambdaLR 같은 step-based scheduler는 첫 번째 값 스킵 문제가 없고, 총 step 수를 미리 지정했으므로 실제 성능 영향 거의 없음 ==> 무시해도 문제 없음
+        # 실제로 optimizer 업데이트 시에만 lr_scheduler.step()을 하려면 
+        # 
+        # @@@ prev_scale 초기화 부분 loss 계산 전에 추가
+        # prev_scale = mp_scaler.get_scale()
+        # with torch.amp.autocast(device_type=device):
+        # ...
+        # if mp_scaler.get_scale() >= prev_scale:  # 업데이트 성공이면 참
+        #     scheduler.step()
+        # 
+        # 로 코드를 변경
+        # @@@ mp_scaler는 업데이트를 성공하면 scale을 유지하거나 1~2배 사이 값으로 증가
+        # @@@ 업데이트를 실패하면 backoff_factor(보통 1/2) 만큼 곱해서 scale을 감소 시킨다
+        # @@@ mp_scaler.get_scale() >= prev_scale 조건은 scale이 유지됐거나 증가했다는 의미
+        # @@@ 따라서 업데이트 성공
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         if wandb_mode != "disabled":
             wandb.log({"mp_scaler_scale": mp_scaler.get_scale()})
