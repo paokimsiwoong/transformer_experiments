@@ -449,32 +449,32 @@ def train_loop_with_mp(
 
             # assert not torch.isnan(loss), "Loss value is NaN!"
 
-            if torch.isnan(loss) or torch.isinf(loss):
-                print("Loss value is NaN or inf!")
-                print("".center(50, "-"))
-                print("saving current states")
-                fpath = osp.join("/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/debug_saves", f"debug_{train_start}_latest.pth")
+            # if torch.isnan(loss) or torch.isinf(loss):
+            #     print("Loss value is NaN or inf!")
+            #     print("".center(50, "-"))
+            #     print("saving current states")
+            #     fpath = osp.join("/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/debug_saves", f"debug_{train_start}_latest.pth")
 
-                states = {
-                    "batch": batch,
-                    "inputs": inputs,
-                    "gts": gts,
-                    "labels": labels,
-                    "x_masks": x_masks,
-                    "gt_masks": gt_masks,
-                    "out": out,
-                    "loss": loss,
-                    "model_state_dict": model.state_dict(),  # 모델의 state_dict 저장
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
-                    "mp_scaler_state_dict": mp_scaler.state_dict(),
-                }
+            #     states = {
+            #         "batch": batch,
+            #         "inputs": inputs,
+            #         "gts": gts,
+            #         "labels": labels,
+            #         "x_masks": x_masks,
+            #         "gt_masks": gt_masks,
+            #         "out": out,
+            #         "loss": loss,
+            #         "model_state_dict": model.state_dict(),  # 모델의 state_dict 저장
+            #         "optimizer_state_dict": optimizer.state_dict(),
+            #         "scheduler_state_dict": scheduler.state_dict(),
+            #         "mp_scaler_state_dict": mp_scaler.state_dict(),
+            #     }
 
-                torch.save(states, fpath)
-                print("".center(50, "-"))
-                print("states saved")
-                print("".center(50, "-"))
-                raise ValueError("NaN or inf detected in loss!")
+            #     torch.save(states, fpath)
+            #     print("".center(50, "-"))
+            #     print("states saved")
+            #     print("".center(50, "-"))
+            #     raise ValueError("NaN or inf detected in loss!")
 
             normalized_loss = loss / batch_ntokens
 
@@ -483,6 +483,16 @@ def train_loop_with_mp(
 
         mp_scaler.scale(normalized_loss).backward()
 
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ 실제 grad 값을 로그하거나 그래디언트 클리핑을 진행하기 위해서는 scale 된 grad 값들을 scaling factor로 다시 나누어주어야 한다
+        mp_scaler.unscale_(optimizer)
+        # @@@ mp_scaler.step(optimizer)는 앞에 mp_scaler.unscale_(optimizer)이 없으면 
+        # @@@ 알아서 mp_scaler.unscale_(optimizer)를 내부에서 실행하지만 
+        # @@@ 앞에서 명시적으로 실행하면 파라메터 업데이트만 실행
+        # @@@ @@@ unscale_ 주석 확인
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        
 
         # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
         weight = model.src_embed[0].embed.weight
@@ -509,31 +519,31 @@ def train_loop_with_mp(
             grad_mean_ffc_bias = grad_ffc_bias.mean().item() if grad_ffc_bias is not None else None
             grad_max_ffc_bias = grad_ffc_bias.max().item() if grad_ffc_bias is not None else None
             norm_ffc_bias = grad_ffc_bias.norm().item() if grad_ffc_bias is not None else None
-            if math.isnan(grad_mean_ffc_bias) or math.isinf(grad_mean_ffc_bias):
-                grad_mean_ffc_bias = 0
-            if math.isnan(grad_max_ffc_bias) or math.isinf(grad_max_ffc_bias):
-                grad_max_ffc_bias = 0
-            if math.isnan(norm_ffc_bias) or math.isinf(norm_ffc_bias):
-                norm_ffc_bias = 0
+        #     if math.isnan(grad_mean_ffc_bias) or math.isinf(grad_mean_ffc_bias):
+        #         grad_mean_ffc_bias = 0
+        #     if math.isnan(grad_max_ffc_bias) or math.isinf(grad_max_ffc_bias):
+        #         grad_max_ffc_bias = 0
+        #     if math.isnan(norm_ffc_bias) or math.isinf(norm_ffc_bias):
+        #         norm_ffc_bias = 0
 
-        if math.isnan(grad_mean) or math.isinf(grad_mean):
-            grad_mean = 0
-        if math.isnan(grad_max) or math.isinf(grad_max):
-            grad_max = 0
-        if math.isnan(norm) or math.isinf(norm):
-            norm = 0
-        if math.isnan(grad_mean_tgt) or math.isinf(grad_mean_tgt):
-            grad_mean_tgt = 0
-        if math.isnan(grad_max_tgt) or math.isinf(grad_max_tgt):
-            grad_max_tgt = 0
-        if math.isnan(norm_tgt) or math.isinf(norm_tgt):
-            norm_tgt = 0
-        if math.isnan(grad_mean_ffc) or math.isinf(grad_mean_ffc):
-            grad_mean_ffc = 0
-        if math.isnan(grad_max_ffc) or math.isinf(grad_max_ffc):
-            grad_max_ffc = 0
-        if math.isnan(norm_ffc) or math.isinf(norm_ffc):
-            norm_ffc = 0
+        # if math.isnan(grad_mean) or math.isinf(grad_mean):
+        #     grad_mean = 0
+        # if math.isnan(grad_max) or math.isinf(grad_max):
+        #     grad_max = 0
+        # if math.isnan(norm) or math.isinf(norm):
+        #     norm = 0
+        # if math.isnan(grad_mean_tgt) or math.isinf(grad_mean_tgt):
+        #     grad_mean_tgt = 0
+        # if math.isnan(grad_max_tgt) or math.isinf(grad_max_tgt):
+        #     grad_max_tgt = 0
+        # if math.isnan(norm_tgt) or math.isinf(norm_tgt):
+        #     norm_tgt = 0
+        # if math.isnan(grad_mean_ffc) or math.isinf(grad_mean_ffc):
+        #     grad_mean_ffc = 0
+        # if math.isnan(grad_max_ffc) or math.isinf(grad_max_ffc):
+        #     grad_max_ffc = 0
+        # if math.isnan(norm_ffc) or math.isinf(norm_ffc):
+        #     norm_ffc = 0
 
 
         # 그래디언트 클리핑
@@ -584,6 +594,11 @@ def train_loop_with_mp(
         mp_scaler.step(optimizer)
         mp_scaler.update()
         scheduler.step()
+
+        # @@@ mp_scaler.step(optimizer) 이후에 grad 값을 로그하면 
+        # @@@ 이때는 이미 weight가 업데이트됐기 때문에, step 이후의 grad는 보통 의미가 없음
+        # @@@ @@@ gradient clipping 타이밍은 이미 지나간 상태이고
+        # @@@ @@@ 대부분 옵티마이저에서 grad를 건드리기 떄문에 실제 grad 값을 로깅할 수 없음
 
         if wandb_mode != "disabled":
             wandb.log({"mp_scaler_scale": mp_scaler.get_scale()})
