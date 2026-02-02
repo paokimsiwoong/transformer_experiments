@@ -656,6 +656,12 @@ def val_loop_with_mp(
     ):
 
     model.eval()
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # torch.amp.autocast보다
+    # 모델을 미리 half()로 변환해두고 추론하는게 더빠름
+    # test_pths.ipynb 확인 결과 1.2배
+    model= model.half()
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     with torch.no_grad():
         val_loss = 0
@@ -687,15 +693,28 @@ def val_loop_with_mp(
             x_masks = batch_val['attention_mask'].to(device, non_blocking=True)
             gt_masks = batch_val['decoder_mask'].to(device, non_blocking=True)
 
-            with torch.amp.autocast(device_type=device):
-                out = model(inputs, gts, x_masks, gt_masks)
-                # out.size는 (b, tgt_seq_len, tgt_len_vocab)
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # with torch.amp.autocast(device_type=device):
+            #     out = model(inputs, gts, x_masks, gt_masks)
+            #     # out.size는 (b, tgt_seq_len, tgt_len_vocab)
 
-                # loss 계산 시에는 out은 (b * tgt_seq_len, tgt_len_vocab)
-                # labels는 (b * tgt_seq_len)로 변경 후 입력
-                loss = criterion(out.contiguous().view(-1, out.size(-1)), labels.contiguous().view(-1))
+            #     # loss 계산 시에는 out은 (b * tgt_seq_len, tgt_len_vocab)
+            #     # labels는 (b * tgt_seq_len)로 변경 후 입력
+            #     loss = criterion(out.contiguous().view(-1, out.size(-1)), labels.contiguous().view(-1))
 
-                # normalized_loss = loss / batch_val_ntokens
+            #     # normalized_loss = loss / batch_val_ntokens
+
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # @@@ autocast 대신 model.half() 사용해서 추론
+            # model은 .half()로 fp 16 변환 상태
+            # @@@ 인풋들은 long 텐서이므로 half 변환 필요 없음
+            out = model(inputs, gts, x_masks, gt_masks)
+            # out.size는 (b, tgt_seq_len, tgt_len_vocab)
+
+            # loss 계산 시에는 out은 (b * tgt_seq_len, tgt_len_vocab)
+            # labels는 (b * tgt_seq_len)로 변경 후 입력
+            loss = criterion(out.contiguous().view(-1, out.size(-1)), labels.contiguous().view(-1))
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
             loss_value = loss.item()
             # normalized_loss_value = normalized_loss.item()

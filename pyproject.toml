@@ -25,6 +25,7 @@ dependencies = [
     "sentencepiece>=0.2.1",
     "tokenizers>=0.22.1",
     "torch>=2.9.1",
+    "torchsummary>=1.5.1",
     "tqdm>=4.67.1",
     "transformers>=4.57.1",
     "vl-convert-python>=1.8.0",

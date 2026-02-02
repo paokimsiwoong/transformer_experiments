@@ -293,6 +293,9 @@ def train(
                 states["mp_scaler_state_dict"] = mp_scaler.state_dict()
 
             torch.save(states, ckpt_fpath)
+        
+        # train loop 종료 후 캐시 정리
+        torch.cuda.empty_cache()
 
         # validation 주기에 따라 loss 또는 평가메트릭을 계산하고 best model을 저장
         if (epoch + 1) % val_interval == 0:
@@ -370,6 +373,9 @@ def train(
             #     counter = 0
             # else:
             #     counter += 1
+
+        # val loop 종료 후 캐시 정리
+        torch.cuda.empty_cache()
 
         if (epoch + 1) % test_interval == 0 or (epoch + 1) == max_epoch:
             print("".center(50, "-"))
@@ -465,6 +471,9 @@ def train(
 
 
             wandb.log(wandb_test_dict)
+
+        # test loop 종료 후 캐시 정리
+        torch.cuda.empty_cache()
 
         
         epoch_end = datetime.now()
