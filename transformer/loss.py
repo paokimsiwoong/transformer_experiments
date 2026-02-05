@@ -14,13 +14,14 @@ class LabelSmoothing(nn.Module):
     "Implement label smoothing."
     def __init__(self, size, padding_idx, smoothing=0.0):
         super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(reduction="sum")
+        # self.criterion = nn.KLDivLoss(reduction="sum")
         self.criterion = nn.CrossEntropyLoss(reduction="sum")
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
         self.size = size
-        self.true_dist = None
+        # self.true_dist = None
+        # @@@ 미사용 중이므로 주석처리 -> 메모리 누수 방지 및 절약
         
     def forward(self, x, target):
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -77,7 +78,8 @@ class LabelSmoothing(nn.Module):
         #     # ==> 정답이 pad 토큰인 행을 index로 선택 후 그 행의 모든 값을 0으로 변경
         
         
-        self.true_dist = true_dist
+        # self.true_dist = true_dist
+        # @@@ 미사용 중이므로 주석처리 -> 메모리 누수 방지 및 절약
 
         log_prob = F.log_softmax(x, dim=-1)
 
@@ -87,7 +89,8 @@ class LabelSmoothing(nn.Module):
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@ softmax 결과인 x에 0.0이 존재할 수 있어서 x.log() 사용 시 -inf 값이 나오는 문제가 있으므로 코드 변경
         # @@@ @@@ ==> 모델 forward 출력에 softmax를 제거하고 여기서 F.log_softmax() 사용
-        return self.criterion(log_prob, true_dist.detach().clone())
+        # return self.criterion(log_prob, true_dist.detach().clone())
+        return self.criterion(log_prob, true_dist)
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # 예측값 최종 계산에서 log softmax대신 그냥 softmax사용했으므로
         # x.log()입력
