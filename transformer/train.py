@@ -19,6 +19,9 @@ from loops import train_loop, val_loop, test_loop, train_loop_with_mp, val_loop_
 from hooks import nan_hook, clip_grad_hook, clip_grad_embed_hook
 from utils import set_seed, check_nan_in_parameters, WeightTying
 
+import gc
+# gc.collect()로 python 객체 정리
+
 def train(
     args_dicts, # unpack하지 않은 dict도 받아서 pth 안에 같이 저장하기
     data_dir,
@@ -214,7 +217,10 @@ def train(
         mode=wandb_mode,
     )
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # @@@ 메모리 누수 원인이 될 수 있음?
     wandb.watch((model,))
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     best_loss = np.inf
     # best_bleu = 0
@@ -295,7 +301,13 @@ def train(
             torch.save(states, ckpt_fpath)
         
         # train loop 종료 후 캐시 정리
-        torch.cuda.empty_cache()
+        gc.collect()    # 1. Python GC 실행 (CPU 메모리)
+        torch.cuda.empty_cache()      # 2. 사용 안하는 GPU 메모리 캐시 해제 요청
+        torch.cuda.synchronize()      # 3. GPU가 2번 작업(torch.cuda.empty_cache()) 및 다른 비동기 작업들을 완료할 때까지 대기
+        # torch.cuda.synchronize()의 역할: GPU의 모든 비동기 작업(CUDA kernel)이 완료될 때까지 CPU가 대기하게 만든다
+        # synchronize가 없으면 torch.cuda.empty_cache()가 비동기로 호출되고 나서
+        # 진행중인 GPU 캐시 정리 작업을 기다리지 않고 뒤의 val 루프나 다음 에폭 코드가 호출되어
+        # 캐시 정리가 불완전하게 되므로 메모리 해제 실패 및 누적 문제 발생
 
         # validation 주기에 따라 loss 또는 평가메트릭을 계산하고 best model을 저장
         if (epoch + 1) % val_interval == 0:
@@ -375,7 +387,9 @@ def train(
             #     counter += 1
 
         # val loop 종료 후 캐시 정리
+        gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
         if (epoch + 1) % test_interval == 0 or (epoch + 1) == max_epoch:
             print("".center(50, "-"))
@@ -473,7 +487,9 @@ def train(
             wandb.log(wandb_test_dict)
 
         # test loop 종료 후 캐시 정리
+        gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
         
         epoch_end = datetime.now()
