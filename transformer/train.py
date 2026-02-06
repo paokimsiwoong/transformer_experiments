@@ -78,7 +78,24 @@ def train(
 
     set_seed(seed)
 
-    torch.cuda.set_per_process_memory_fraction(0.925, device=0)
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # @@@ 공유 메모리 사용 문제 해결
+    # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512,expandable_segments:True"
+    # @@@ 사용하면 메모리 사용량이 들쭉날쭉 계속 변하면서 느려짐
+    # max_split_size_mb:512로 큰 텐서 할당시 블록 개수를 줄여 조각화 방지 
+    # expandable_segments:True는 기존 블록의 크기가 부족하면 동적으로 크기를 늘려서 새 블록 할당을 최소화
+
+    # PYTORCH_CUDA_ALLOC_CONF는 deprecated
+    # os.environ["PYTORCH_ALLOC_CONF"] = "garbage_collection_threshold:0.925"
+    # PyTorch CUDA allocator가 사용되지 않는 메모리 블록을 적극적으로 회수하는 임계값을 설정
+    # gpu 메모리 사용률이 0.9375를 넘으면 gc 실행
+
+    torch.cuda.set_per_process_memory_fraction(0.9375, device=0)
+    # reserved 메모리 크기가 계속 커져서 공유메모리까지 점유하지 않도록 0.9375설정(최대 15GB)
+
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     if not osp.exists(model_dir):
         os.makedirs(model_dir)
