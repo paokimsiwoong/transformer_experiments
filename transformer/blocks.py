@@ -224,6 +224,10 @@ class MultiHeadAttention(nn.Module):
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         if self.visualization:
+            # self.attn = attend.detach().clone()
+            # @@@ SDPA 함수는 self.visualization, testing이 둘다 True일 때만 실행되고
+            # @@@ testing이 True일때는 torch.no_grad() 상태서 계산하므로
+            # @@@ detach 필요 없음
             self.attn = attend
 
         out = attend @ V

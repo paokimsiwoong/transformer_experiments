@@ -78,6 +78,8 @@ def train(
 
     set_seed(seed)
 
+    torch.cuda.set_per_process_memory_fraction(0.925, device=0)
+
     if not osp.exists(model_dir):
         os.makedirs(model_dir)
 

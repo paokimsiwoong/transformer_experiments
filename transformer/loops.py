@@ -36,6 +36,26 @@ def train_loop(
 
     num_batches_train = len(loaders.loader_train)
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # 메모리 증가량 확인용 변수들
+    # mem_a_start = 0.0
+    # mem_r_start = 0.0
+    # mem_a_to = 0.0
+    # mem_r_to = 0.0
+    # mem_a_outloss = 0.0
+    # mem_r_outloss = 0.0
+    # mem_a_backword = 0.0
+    # mem_r_backword = 0.0
+    # mem_a_gradcheck = 0.0
+    # mem_r_gradcheck = 0.0
+    # mem_a_log = 0.0
+    # mem_r_log = 0.0
+    # mem_a_stepupdate = 0.0
+    # mem_r_stepupdate = 0.0
+    # mem_a_end = 0.0
+    # mem_r_end = 0.0
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     for step, batch in tqdm(
         enumerate(loaders.loader_train),
         total=num_batches_train,
@@ -44,7 +64,42 @@ def train_loop(
 
         if train_break:
             break
-        
+
+        optimizer.zero_grad()
+
+        # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
+        current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+
+        if current_memory_gb > 15.5: 
+            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {15.5}GB, cleaning...")
+
+            # print(f"==>> mem_a_start: {mem_a_start}")
+            # print(f"==>> mem_r_start: {mem_r_start}")
+            # print(f"==>> mem_a_to: {mem_a_to}")
+            # print(f"==>> mem_r_to: {mem_r_to}")
+            # print(f"==>> mem_a_outloss: {mem_a_outloss}")
+            # print(f"==>> mem_r_outloss: {mem_r_outloss}")
+            # print(f"==>> mem_a_backword: {mem_a_backword}")
+            # print(f"==>> mem_r_backword: {mem_r_backword}")
+            # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
+            # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
+            # print(f"==>> mem_a_log: {mem_a_log}")
+            # print(f"==>> mem_r_log: {mem_r_log}")
+            # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
+            # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
+            # print(f"==>> mem_a_end: {mem_a_end}")
+            # print(f"==>> mem_r_end: {mem_r_end}")
+
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_start = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_start = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         inputs = batch['input_ids'].to(device, non_blocking=True)
         # (batch_size, src_seq_len)
@@ -71,7 +126,10 @@ def train_loop(
         x_masks = batch['attention_mask'].to(device, non_blocking=True)
         gt_masks = batch['decoder_mask'].to(device, non_blocking=True)
 
-        optimizer.zero_grad()
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_to = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_to = torch.cuda.memory_reserved() / 1024**3 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         out = model(inputs, gts, x_masks, gt_masks)
         # out.size는 (b, tgt_seq_len, tgt_len_vocab)
@@ -126,10 +184,20 @@ def train_loop(
 
         normalized_loss = loss / batch_ntokens
 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         loss_value = loss.item()
         normalized_loss_value = normalized_loss.item()
 
         normalized_loss.backward()
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_backword = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_backword = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
         # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
@@ -167,6 +235,11 @@ def train_loop(
         # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
 
 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         if wandb_mode != "disabled":
             wandb_step_dict = {
                 "step_total_loss": loss_value,
@@ -201,8 +274,18 @@ def train_loop(
             wandb.log(wandb_step_dict)
 
 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_log = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_log = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         optimizer.step()
         scheduler.step()
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         if debug:
             # NaN값이 파라메터이 있는지 확인
@@ -212,6 +295,11 @@ def train_loop(
         # with torch.no_grad():
         # @@@ loss.item()은 그래프에서 분리된 순수한 숫자(float)이므로 그래디언트 계산과 무관
         epoch_loss += loss_value
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_end = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_end = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
     # 배치당 loss 값의 평균 계산
@@ -389,26 +477,27 @@ def train_loop_with_mp(
 
     num_batches_train = len(loaders.loader_train)
 
-    # @@@
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 메모리 증가량 확인용 변수들
-    mem_a_start = 0.0
-    mem_r_start = 0.0
-    mem_a_to = 0.0
-    mem_r_to = 0.0
-    mem_a_outloss = 0.0
-    mem_r_outloss = 0.0
-    mem_a_backword = 0.0
-    mem_r_backword = 0.0
-    mem_a_gradcheck = 0.0
-    mem_r_gradcheck = 0.0
-    mem_a_log = 0.0
-    mem_r_log = 0.0
-    mem_a_stepupdate = 0.0
-    mem_r_stepupdate = 0.0
-    mem_a_log2 = 0.0
-    mem_r_log2 = 0.0
-    mem_a_end = 0.0
-    mem_r_end = 0.0
+    # mem_a_start = 0.0
+    # mem_r_start = 0.0
+    # mem_a_to = 0.0
+    # mem_r_to = 0.0
+    # mem_a_outloss = 0.0
+    # mem_r_outloss = 0.0
+    # mem_a_backword = 0.0
+    # mem_r_backword = 0.0
+    # mem_a_gradcheck = 0.0
+    # mem_r_gradcheck = 0.0
+    # mem_a_log = 0.0
+    # mem_r_log = 0.0
+    # mem_a_stepupdate = 0.0
+    # mem_r_stepupdate = 0.0
+    # mem_a_log2 = 0.0
+    # mem_r_log2 = 0.0
+    # mem_a_end = 0.0
+    # mem_r_end = 0.0
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     for step, batch in tqdm(
         enumerate(loaders.loader_train),
@@ -418,39 +507,43 @@ def train_loop_with_mp(
 
         if train_break:
             break
+
+        optimizer.zero_grad()
         
         # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
         current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
-        if current_memory_gb > 15.0: 
-            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {15.0}GB, cleaning...")
+        if current_memory_gb > 15.5: 
+            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {15.5}GB, cleaning...")
 
-            print(f"==>> mem_a_start: {mem_a_start}")
-            print(f"==>> mem_r_start: {mem_r_start}")
-            print(f"==>> mem_a_to: {mem_a_to}")
-            print(f"==>> mem_r_to: {mem_r_to}")
-            print(f"==>> mem_a_outloss: {mem_a_outloss}")
-            print(f"==>> mem_r_outloss: {mem_r_outloss}")
-            print(f"==>> mem_a_backword: {mem_a_backword}")
-            print(f"==>> mem_r_backword: {mem_r_backword}")
-            print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
-            print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
-            print(f"==>> mem_a_log: {mem_a_log}")
-            print(f"==>> mem_r_log: {mem_r_log}")
-            print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
-            print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
-            print(f"==>> mem_a_log2: {mem_a_log2}")
-            print(f"==>> mem_r_log2: {mem_r_log2}")
-            print(f"==>> mem_a_end: {mem_a_end}")
-            print(f"==>> mem_r_end: {mem_r_end}")
+            # print(f"==>> mem_a_start: {mem_a_start}")
+            # print(f"==>> mem_r_start: {mem_r_start}")
+            # print(f"==>> mem_a_to: {mem_a_to}")
+            # print(f"==>> mem_r_to: {mem_r_to}")
+            # print(f"==>> mem_a_outloss: {mem_a_outloss}")
+            # print(f"==>> mem_r_outloss: {mem_r_outloss}")
+            # print(f"==>> mem_a_backword: {mem_a_backword}")
+            # print(f"==>> mem_r_backword: {mem_r_backword}")
+            # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
+            # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
+            # print(f"==>> mem_a_log: {mem_a_log}")
+            # print(f"==>> mem_r_log: {mem_r_log}")
+            # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
+            # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
+            # print(f"==>> mem_a_log2: {mem_a_log2}")
+            # print(f"==>> mem_r_log2: {mem_r_log2}")
+            # print(f"==>> mem_a_end: {mem_a_end}")
+            # print(f"==>> mem_r_end: {mem_r_end}")
 
             gc.collect()
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
             print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        mem_a_start = torch.cuda.memory_allocated() / 1024**3
-        mem_r_start = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_start = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_start = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         inputs = batch['input_ids'].to(device, non_blocking=True)
         # (batch_size, src_seq_len)
@@ -477,10 +570,10 @@ def train_loop_with_mp(
         x_masks = batch['attention_mask'].to(device, non_blocking=True)
         gt_masks = batch['decoder_mask'].to(device, non_blocking=True)
 
-        mem_a_to = torch.cuda.memory_allocated() / 1024**3
-        mem_r_to = torch.cuda.memory_reserved() / 1024**3 
-
-        optimizer.zero_grad()
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_to = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_to = torch.cuda.memory_reserved() / 1024**3 
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
         with torch.amp.autocast(device_type=device):
@@ -536,16 +629,20 @@ def train_loop_with_mp(
 
             normalized_loss = loss / batch_ntokens
 
-        mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
-        mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         loss_value = loss.item()
         normalized_loss_value = normalized_loss.item()
 
         mp_scaler.scale(normalized_loss).backward()
 
-        mem_a_backword = torch.cuda.memory_allocated() / 1024**3
-        mem_r_backword = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_backword = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_backword = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # @@@ 실제 grad 값을 로그하거나 그래디언트 클리핑을 진행하기 위해서는 scale 된 grad 값들을 scaling factor로 다시 나누어주어야 한다
@@ -616,8 +713,11 @@ def train_loop_with_mp(
         # torch.nn.utils.clip_grad_norm_(model.encoder.parameters(), max_norm=max_norm)
         # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
 
-        mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
-        mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         if wandb_mode != "disabled":
             wandb_step_dict = {
@@ -652,8 +752,12 @@ def train_loop_with_mp(
 
             wandb.log(wandb_step_dict)
 
-        mem_a_log = torch.cuda.memory_allocated() / 1024**3
-        mem_r_log = torch.cuda.memory_reserved() / 1024**3
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_log = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_log = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         # optimizer.step()
         # mp_scaler로 step을 하면 grad를 구할 때 mp_scaler.scale에서 곱해졌던 scaling factor를
@@ -691,14 +795,22 @@ def train_loop_with_mp(
         # @@@ 따라서 업데이트 성공
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-        mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
-        mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         if wandb_mode != "disabled":
             wandb.log({"mp_scaler_scale": mp_scaler.get_scale()})
 
-        mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
-        mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
         if debug:
             # NaN값이 파라메터이 있는지 확인
@@ -717,8 +829,10 @@ def train_loop_with_mp(
 
         # del out, loss
 
-        mem_a_end = torch.cuda.memory_allocated() / 1024**3
-        mem_r_end = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # mem_a_end = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_end = torch.cuda.memory_reserved() / 1024**3
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
     # 배치당 loss 값의 평균 계산
