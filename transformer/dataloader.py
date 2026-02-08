@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Sampler, get_worker_info
 from torch.nn.utils.rnn import pad_sequence
 
 from transformers import AutoTokenizer
@@ -16,11 +16,15 @@ import multiprocessing
 from functools import partial
 # 함수 일부 인자 고정에 사용
 
+from collections import defaultdict
+# custom sampler에서 사용
+
 class Loaders():
     def __init__(
             self,
             data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data.csv",
             max_token_length = 512,
+            target_tokens = 10000,
             batch_size_train = 8,
             num_workers = 4,
             batch_size_val = 4,
@@ -107,8 +111,37 @@ class Loaders():
                                 # remove_columns 인자 사용
                                 # remove_columns=dataset_dict["train"].column_names,
                                 num_proc=NUM_CPU)
+        
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ 길이별 bucketing을 하기 위해 length 칼럼 추가
+
+        def add_length(batch):
+            batch["length"] = [len(inp) for inp in batch["input_ids"]] 
+            # @@@ map함수에 batched=True여야함
+            # @@@ False이면 batch["length"] = len(batch["input_ids"])
+            return batch
+        self.datasets = self.datasets.map(add_length, batched=True, num_proc=NUM_CPU)
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         print(f"==>> self.datasets: {self.datasets}")
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ 길이 별 bucketing 안할 경우
+        # sampler = TokenBatchSampler(
+        #     self.datasets["train"], 
+        #     target_tokens=10000,
+        #     max_batch_samples=batch_size_train * 2,
+        # )
+
+        # @@@ 길이 기준 sort로 간이 길이 별 bucketing 실행
+        self.datasets["train"] = self.datasets["train"].sort("length")
+
+        sampler = SortedTokenBatchSampler(
+            self.datasets["train"], 
+            target_tokens=target_tokens,
+            max_batch_samples=batch_size_train, # TODO: 적절한 값 찾기
+        )
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         self.train_set = self.datasets['train']
         self.val_set = self.datasets['validation']
@@ -116,7 +149,9 @@ class Loaders():
 
         c_fn = partial(collate_fn, start_idx=self.start_idx, end_idx=self.end_idx, padding_idx=self.padding_idx, unk_idx=self.unk_idx)
 
-        self.loader_train = DataLoader(self.train_set, batch_size=batch_size_train, collate_fn=c_fn, shuffle=True, num_workers=num_workers, pin_memory=True)
+        # self.loader_train = DataLoader(self.train_set, batch_size=batch_size_train, collate_fn=c_fn, shuffle=True, num_workers=num_workers, pin_memory=True)
+        # @@@ 배치 별 총 토큰 수 일정하게 유지하기 위해 batch_size 대신 batch_sampler 사용
+        self.loader_train = DataLoader(self.train_set, batch_sampler=sampler, collate_fn=c_fn, shuffle=False, num_workers=num_workers, pin_memory=True)
         # 학습시에만 shuffle=True
         self.loader_val = DataLoader(self.val_set, batch_size=batch_size_val, collate_fn=c_fn, shuffle=False, num_workers=val_num_workers, pin_memory=True)
         self.loader_test = DataLoader(self.test_set, batch_size=batch_size_test, collate_fn=c_fn, shuffle=False, num_workers=val_num_workers, pin_memory=True)
@@ -321,7 +356,8 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     # batch는 [{'kor':..., 'en':..., 'cat':숫자, 'input_ids':[...], 'attention_mask':[1, ...], 'labels': [...]}, ...] 형태
     
     # keys = batch[0].keys()
-    keys = ['kor', 'en', 'cat', 'input_ids', 'attention_mask', 'labels']
+    keys = ['kor', 'en', 'cat', 'input_ids', 'attention_mask', 'labels', 'length'] 
+    # @@@ length는 input_ids의 토큰 개수
     # print(f"==>> keys: {keys}")
     # print("".center(50, "-"))
     
@@ -370,3 +406,170 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     new_batch['decoder_mask'] = padded_d_masks
     
     return new_batch
+
+
+# 배치 안 총 토큰 개수를 일정하게 만들어주는 custom sampler
+class TokenBatchSampler(Sampler):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 40586486, mean_token_count = 32):
+        # dataset에 'length' 컬럼 있어야 함
+        self.lengths = dataset["length"]
+
+        self.target_tokens = target_tokens
+        self.max_batch_samples = max_batch_samples
+
+        self.num_samples = len(dataset)
+        # torch.randperm에 입력할 데이터셋 길이
+
+        # __len__에 쓰이는 변수들
+        self.total_token_count = total_token_count
+        self.mean_token_count = mean_token_count
+        self.len_bool = self.max_batch_samples * self.mean_token_count < self.target_tokens
+
+        # set_epoch으로 에폭마다 증가하게 해서
+        # randperm 결과 매번 다르게 하기
+        self.epoch = 0
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+        
+    # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
+    # TODO: randperm 시드 설정 문제 및 에폭 마다 다르게 indices를 생성했을 때, worker들이 그 indices를 공유하게 하기
+    def __iter__(self):
+        indices = torch.randperm(self.num_samples).tolist()
+        # randperm(n)은 [0, n) 사이 정수의 permutation을 반환
+        # @@@ 각 epoch 마다 __iter__가 실행되어 새 iterator를 반환하므로
+        # @@@ torch.randperm이 새로 실행되어 에폭마다 idx permutation은 다르다
+        # @@@ @@@ 그러나 torch.manual_seed(42)로 시드가 고정된 경우 모든 에폭 동일 permutation 생성
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ num_workers > 0 인 경우 여러 worker가 동일 인덱스를 순회하지 않도록 indices를 쪼개줘야 한다
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            # 현재 __iter__를 호출한 worker id (ex: 0, 1, 2, 3)
+            num_workers = worker_info.num_workers
+            # 총 worker 수 (ex: 4)
+            indices = indices[worker_id::num_workers]
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        
+        i = 0
+        while i < len(indices): # 데이터셋의 데이터 전부를 처리할때까지 while loop
+            batch = []
+            current_tokens = 0
+            # 배치 내 총 토큰수 카운트
+            
+            while (current_tokens < self.target_tokens and 
+                   len(batch) < self.max_batch_samples and 
+                   i < len(indices)):
+            # 현재 배치 내 총 토큰 수가 target_tokens=10000 보다 작고
+            # 배치 내 sample 개수가 max_batch_samples=64 보다 작고
+            # 데이터셋에 남은 데이터가 있을때 while loop
+                
+                idx = indices[i]
+                # if current_tokens + self.lengths[idx] <= self.target_tokens:
+                #     batch.append(idx)
+                #     current_tokens += self.lengths[idx]
+                # 이렇게 두면 if 조건문이 false가 될 때의 idx를 skip 하는 문제가 있음
+                if current_tokens + self.lengths[idx] >= self.target_tokens * 1.2:
+                    # 갑자기 매우 큰 문장이 들어와 배치에 입력하면 
+                    # self.target_tokens * 1.2 보다 커질 경우
+                    # 큰 문장을 포함하기 전 배치를 바로 yield
+                    break
+                    # @@@ 여기서 break 했는데 현재까지의 batch 길이가 1이어서 yield 안되는 경우
+                    # @@@ while i < self.num_samples:로 돌아가
+                    # @@@ batch가 초기화된다 ==> 매우 큰 문장 바로 전 문장 skip 
+                    # @@@ @@@ 단일 문장으로 self.target_tokens * 1.2이 되는 경우는 없다고 가정
+                    # @@@ @@@ 있을 경우 무한 루프 발생
+
+                batch.append(idx)
+                current_tokens += self.lengths[idx]
+
+                i += 1
+            
+            if len(batch) >= 1:
+                yield batch
+
+    # __len__: 총 배치 수를 알려주는 메소드
+    # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
+    def __len__(self):
+        # 학습셋 총 토큰 40586486개
+        # 데이터 당 평균 토큰 수 31.66개 ~ 32
+
+        if self.len_bool:
+        # # self.max_batch_samples * self.mean_token_count가 self.target_tokens 보다 작으면 
+        # # 배치의 총 토큰 수가 self.target_tokens을 채우기 전에 self.max_batch_samples 도달
+            return (self.num_samples // self.max_batch_samples) + 1
+
+        # => (40586486 // 10000) + 1
+        return (self.total_token_count // self.target_tokens) + 1
+
+# Dataset.sort("length")로 bucketing 시 사용하는 custom sampler
+class SortedTokenBatchSampler(Sampler):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 40586486, mean_token_count = 32):
+        self.lengths = dataset["length"]
+        self.target_tokens = target_tokens
+        self.max_batch_samples = max_batch_samples
+        self.num_samples = len(dataset)
+
+        # __len__에 쓰이는 변수들
+        self.total_token_count = total_token_count
+        self.mean_token_count = mean_token_count
+        self.len_bool = self.max_batch_samples * self.mean_token_count < self.target_tokens
+
+        # set_epoch으로 에폭 값 받아와서 짝수 에폭, 홀수 에폭 indices 방향 바꾸기
+        self.epoch = 0
+
+    # 현재 몇 epoch인지 받아오는 메소드 override
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+    def __iter__(self):
+        # sort된 순서 유지 (randperm 제거)
+        # indices = list(range(self.num_samples))
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            # 현재 __iter__를 호출한 worker id (ex: 0, 1, 2, 3)
+            num_workers = worker_info.num_workers
+            # 총 worker 수 (ex: 4)
+            indices = list(range(worker_id, self.num_samples, num_workers))
+        else:
+            indices = list(range(self.num_samples))
+
+
+        # if self.epoch % 2 == 1:
+        if self.epoch % 2 == 0: # 임시로 긴문장부터 학습해서 메모리 사용량 체크 시
+            # epoch은 0부터 시작=> 0 epoch은 짧은 문장부터 학습하고
+            # 1 epoch은 reverse해서 긴 문장부터 학습
+            indices.reverse()
+        
+        i = 0
+        while i < len(indices):
+            batch = []
+            current_tokens = 0
+            
+            # sort된 상태에서 토큰 수 맞추기
+            while (current_tokens < self.target_tokens and 
+                   len(batch) < self.max_batch_samples and 
+                   i < len(indices)):
+                
+                idx = indices[i]
+
+                if current_tokens + self.lengths[idx] >= self.target_tokens * 1.2:
+                    break
+
+                batch.append(idx)
+                current_tokens += self.lengths[idx]
+
+                i += 1
+            
+            if len(batch) >= 1:
+                # print(f"==>> current_tokens: {current_tokens}")
+                yield batch
+
+    def __len__(self):
+        if self.len_bool:
+            return (self.num_samples // self.max_batch_samples) + 1
+        
+        return (self.total_token_count // self.target_tokens) + 1
+

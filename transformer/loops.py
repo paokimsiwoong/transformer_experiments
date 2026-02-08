@@ -14,6 +14,8 @@ from utils import check_nan_in_parameters
 import gc
 # gc.collect()로 python 객체 정리
 
+MEM_THRESHOLD = 15.0
+
 def train_loop(
         loaders:Loaders,
         model,
@@ -70,8 +72,8 @@ def train_loop(
         # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
         current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
-        if current_memory_gb > 15.5: 
-            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {15.5}GB, cleaning...")
+        if current_memory_gb > MEM_THRESHOLD: 
+            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
 
             # print(f"==>> mem_a_start: {mem_a_start}")
             # print(f"==>> mem_r_start: {mem_r_start}")
@@ -513,8 +515,8 @@ def train_loop_with_mp(
         # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
         current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
-        if current_memory_gb > 15.5: 
-            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {15.5}GB, cleaning...")
+        if current_memory_gb > MEM_THRESHOLD: 
+            # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
 
             # print(f"==>> mem_a_start: {mem_a_start}")
             # print(f"==>> mem_r_start: {mem_r_start}")
@@ -538,7 +540,7 @@ def train_loop_with_mp(
             gc.collect()
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # mem_a_start = torch.cuda.memory_allocated() / 1024**3
