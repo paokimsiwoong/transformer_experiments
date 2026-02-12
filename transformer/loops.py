@@ -35,6 +35,8 @@ def train_loop(
     epoch_loss = 0
     epoch_total_tokens = 0
 
+    epoch_total_tokens_input = 0
+
 
     num_batches_train = len(loaders.loader_train)
 
@@ -124,6 +126,9 @@ def train_loop(
         # @@@ 단순히  batch['decoder_mask'].sum()해도 동일한 값이 나온다(실제 토큰부분 1, 패딩 부분 0으로 되어 있으므로)
 
         epoch_total_tokens += batch_ntokens
+
+        batch_ntokens_input = batch['ntokens_input']
+        epoch_total_tokens_input += batch_ntokens_input
 
         x_masks = batch['attention_mask'].to(device, non_blocking=True)
         gt_masks = batch['decoder_mask'].to(device, non_blocking=True)
@@ -309,7 +314,7 @@ def train_loop(
     # 토큰 한개당 loss 값의 평균 계산
     epoch_mean_token_loss = epoch_loss / epoch_total_tokens if epoch_total_tokens != 0 else 0
 
-    return epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens
+    return epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens, epoch_total_tokens_input
 
 
 def val_loop(
@@ -326,6 +331,8 @@ def val_loop(
     with torch.no_grad():
         val_loss = 0
         val_total_tokens = 0
+
+        val_total_tokens_input = 0
 
         num_batches_val = len(loaders.loader_val)
 
@@ -349,6 +356,10 @@ def val_loop(
             batch_val_ntokens = batch_val['ntokens']
 
             val_total_tokens += batch_val_ntokens
+
+            batch_val_ntokens_input = batch_val['ntokens_input']
+
+            val_total_tokens_input += batch_val_ntokens_input
 
             x_masks = batch_val['attention_mask'].to(device, non_blocking=True)
             gt_masks = batch_val['decoder_mask'].to(device, non_blocking=True)
@@ -380,7 +391,7 @@ def val_loop(
     # 토큰 한개당 loss 값의 평균 계산
     val_mean_token_loss = val_loss / val_total_tokens if val_total_tokens != 0 else 0
 
-    return val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens
+    return val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens, val_total_tokens_input
 
 
 
@@ -402,6 +413,8 @@ def test_loop(
     with torch.no_grad():
 
         test_total_tokens = 0
+
+        test_total_tokens_input = 0
 
         num_batches_test = len(loaders.loader_test)
 
@@ -426,6 +439,10 @@ def test_loop(
             batch_test_ntokens = batch_test['ntokens']
 
             test_total_tokens += batch_test_ntokens
+            
+            batch_test_ntokens_input = batch_test['ntokens_input']
+
+            test_total_tokens_input += batch_test_ntokens_input
 
             x_masks = batch_test['attention_mask'].to(device, non_blocking=True)
             # @@@ test 과정에서는 필요 없음
@@ -452,7 +469,7 @@ def test_loop(
 
     result_per_cat = loaders.compute_metrics_per_cat()
 
-    return result, result_per_cat, test_total_tokens
+    return result, result_per_cat, test_total_tokens, test_total_tokens_input
 
 
 
@@ -476,29 +493,31 @@ def train_loop_with_mp(
     epoch_loss = 0
     epoch_total_tokens = 0
 
+    epoch_total_tokens_input = 0
+
 
     num_batches_train = len(loaders.loader_train)
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 메모리 증가량 확인용 변수들
-    # mem_a_start = 0.0
-    # mem_r_start = 0.0
-    # mem_a_to = 0.0
-    # mem_r_to = 0.0
-    # mem_a_outloss = 0.0
-    # mem_r_outloss = 0.0
-    # mem_a_backword = 0.0
-    # mem_r_backword = 0.0
-    # mem_a_gradcheck = 0.0
-    # mem_r_gradcheck = 0.0
-    # mem_a_log = 0.0
-    # mem_r_log = 0.0
-    # mem_a_stepupdate = 0.0
-    # mem_r_stepupdate = 0.0
-    # mem_a_log2 = 0.0
-    # mem_r_log2 = 0.0
-    # mem_a_end = 0.0
-    # mem_r_end = 0.0
+    mem_a_start = 0.0
+    mem_r_start = 0.0
+    mem_a_to = 0.0
+    mem_r_to = 0.0
+    mem_a_outloss = 0.0
+    mem_r_outloss = 0.0
+    mem_a_backword = 0.0
+    mem_r_backword = 0.0
+    mem_a_gradcheck = 0.0
+    mem_r_gradcheck = 0.0
+    mem_a_log = 0.0
+    mem_r_log = 0.0
+    mem_a_stepupdate = 0.0
+    mem_r_stepupdate = 0.0
+    mem_a_log2 = 0.0
+    mem_r_log2 = 0.0
+    mem_a_end = 0.0
+    mem_r_end = 0.0
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     for step, batch in tqdm(
@@ -513,41 +532,42 @@ def train_loop_with_mp(
         optimizer.zero_grad()
         
         # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
-        current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+        # current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
-        if current_memory_gb > MEM_THRESHOLD: 
-            # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
+        # if current_memory_gb > MEM_THRESHOLD: 
+            # # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
 
-            # print(f"==>> mem_a_start: {mem_a_start}")
-            # print(f"==>> mem_r_start: {mem_r_start}")
-            # print(f"==>> mem_a_to: {mem_a_to}")
-            # print(f"==>> mem_r_to: {mem_r_to}")
-            # print(f"==>> mem_a_outloss: {mem_a_outloss}")
-            # print(f"==>> mem_r_outloss: {mem_r_outloss}")
-            # print(f"==>> mem_a_backword: {mem_a_backword}")
-            # print(f"==>> mem_r_backword: {mem_r_backword}")
-            # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
-            # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
-            # print(f"==>> mem_a_log: {mem_a_log}")
-            # print(f"==>> mem_r_log: {mem_r_log}")
-            # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
-            # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
-            # print(f"==>> mem_a_log2: {mem_a_log2}")
-            # print(f"==>> mem_r_log2: {mem_r_log2}")
-            # print(f"==>> mem_a_end: {mem_a_end}")
-            # print(f"==>> mem_r_end: {mem_r_end}")
+            # # print(f"==>> mem_a_start: {mem_a_start}")
+            # # print(f"==>> mem_r_start: {mem_r_start}")
+            # # print(f"==>> mem_a_to: {mem_a_to}")
+            # # print(f"==>> mem_r_to: {mem_r_to}")
+            # # print(f"==>> mem_a_outloss: {mem_a_outloss}")
+            # # print(f"==>> mem_r_outloss: {mem_r_outloss}")
+            # # print(f"==>> mem_a_backword: {mem_a_backword}")
+            # # print(f"==>> mem_r_backword: {mem_r_backword}")
+            # # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
+            # # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
+            # # print(f"==>> mem_a_log: {mem_a_log}")
+            # # print(f"==>> mem_r_log: {mem_r_log}")
+            # # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
+            # # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
+            # # print(f"==>> mem_a_log2: {mem_a_log2}")
+            # # print(f"==>> mem_r_log2: {mem_r_log2}")
+            # # print(f"==>> mem_a_end: {mem_a_end}")
+            # # print(f"==>> mem_r_end: {mem_r_end}")
 
-            gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            # gc.collect()
+            # torch.cuda.empty_cache()
+            # torch.cuda.synchronize()
+            # # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_start = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_start = torch.cuda.memory_reserved() / 1024**3
+        mem_a_start = torch.cuda.memory_allocated() / 1024**3
+        mem_r_start = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         inputs = batch['input_ids'].to(device, non_blocking=True)
+        # print(f"==>> inputs.shape: {inputs.shape}")
         # (batch_size, src_seq_len)
 
         # teacher forcing에 사용할 gts
@@ -569,12 +589,16 @@ def train_loop_with_mp(
 
         epoch_total_tokens += batch_ntokens
 
+        batch_ntokens_input = batch['ntokens_input']
+
+        epoch_total_tokens_input += batch_ntokens_input
+
         x_masks = batch['attention_mask'].to(device, non_blocking=True)
         gt_masks = batch['decoder_mask'].to(device, non_blocking=True)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_to = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_to = torch.cuda.memory_reserved() / 1024**3 
+        mem_a_to = torch.cuda.memory_allocated() / 1024**3
+        mem_r_to = torch.cuda.memory_reserved() / 1024**3 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -632,8 +656,8 @@ def train_loop_with_mp(
             normalized_loss = loss / batch_ntokens
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
+        mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
+        mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         loss_value = loss.item()
@@ -642,8 +666,8 @@ def train_loop_with_mp(
         mp_scaler.scale(normalized_loss).backward()
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_backword = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_backword = torch.cuda.memory_reserved() / 1024**3
+        mem_a_backword = torch.cuda.memory_allocated() / 1024**3
+        mem_r_backword = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -716,8 +740,8 @@ def train_loop_with_mp(
         # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+        mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
+        mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -756,8 +780,8 @@ def train_loop_with_mp(
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_log = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_log = torch.cuda.memory_reserved() / 1024**3
+        mem_a_log = torch.cuda.memory_allocated() / 1024**3
+        mem_r_log = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -799,8 +823,8 @@ def train_loop_with_mp(
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+        mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
+        mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -809,8 +833,8 @@ def train_loop_with_mp(
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
+        mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
+        mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -832,9 +856,33 @@ def train_loop_with_mp(
         # del out, loss
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_end = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_end = torch.cuda.memory_reserved() / 1024**3
+        mem_a_end = torch.cuda.memory_allocated() / 1024**3
+        mem_r_end = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        if wandb_mode != "disabled":
+            wandb_mem_dict = {
+                "mem_a_start" : mem_a_start,
+                "mem_r_start" : mem_r_start,
+                "mem_a_to" : mem_a_to,
+                "mem_r_to" : mem_r_to,
+                "mem_a_outloss" : mem_a_outloss,
+                "mem_r_outloss" : mem_r_outloss,
+                "mem_a_backword" : mem_a_backword,
+                "mem_r_backword" : mem_r_backword,
+                "mem_a_gradcheck" : mem_a_gradcheck,
+                "mem_r_gradcheck" : mem_r_gradcheck,
+                "mem_a_log" : mem_a_log,
+                "mem_r_log" : mem_r_log,
+                "mem_a_stepupdate" : mem_a_stepupdate,
+                "mem_r_stepupdate" : mem_r_stepupdate,
+                "mem_a_log2" : mem_a_log2,
+                "mem_r_log2" : mem_r_log2,
+                "mem_a_end" : mem_a_end,
+                "mem_r_end" : mem_r_end,
+            }
+
+            wandb.log(wandb_mem_dict)
 
 
     # 배치당 loss 값의 평균 계산
@@ -844,7 +892,7 @@ def train_loop_with_mp(
 
 
 
-    return epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens
+    return epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens, epoch_total_tokens_input
 
 
 def val_loop_with_mp(
@@ -868,6 +916,8 @@ def val_loop_with_mp(
         val_loss = 0
         val_total_tokens = 0
 
+        val_total_tokens_input = 0
+
         num_batches_val = len(loaders.loader_val)
 
         for step, batch_val in tqdm(
@@ -890,6 +940,10 @@ def val_loop_with_mp(
             batch_val_ntokens = batch_val['ntokens']
 
             val_total_tokens += batch_val_ntokens
+
+            batch_val_ntokens_input = batch_val['ntokens_input']
+
+            val_total_tokens_input += batch_val_ntokens_input
 
             x_masks = batch_val['attention_mask'].to(device, non_blocking=True)
             gt_masks = batch_val['decoder_mask'].to(device, non_blocking=True)
@@ -935,7 +989,7 @@ def val_loop_with_mp(
     # 토큰 한개당 loss 값의 평균 계산
     val_mean_token_loss = val_loss / val_total_tokens if val_total_tokens != 0 else 0
 
-    return val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens
+    return val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens, val_total_tokens_input
 
 
 
@@ -954,9 +1008,18 @@ def test_loop_with_mp(
 
     model.eval()
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # 루프 중간에 print를 하면 cpu가 gpu에 sync 요청을 해 속도가 느려진다
+    # https://medium.com/@varuntej07/why-pytorch-wastes-your-gpu-memory-on-purpose-and-why-thats-brilliant-0a76899797fb
+    # => visualize 내부에서 print를 바로 하지말고 str을 저장했다가 모든 step이 끝나면 출력하도록 변경하기
+    viz_texts = []
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     with torch.no_grad():
 
         test_total_tokens = 0
+
+        test_total_tokens_input = 0
 
         num_batches_test = len(loaders.loader_test)
 
@@ -982,6 +1045,10 @@ def test_loop_with_mp(
 
             test_total_tokens += batch_test_ntokens
 
+            batch_test_ntokens_input = batch_test['ntokens_input']
+
+            test_total_tokens_input += batch_test_ntokens_input
+
             x_masks = batch_test['attention_mask'].to(device, non_blocking=True)
             # @@@ test 과정에서는 필요 없음
             # gt_masks = batch_test['decoder_mask'].to(device)
@@ -999,13 +1066,19 @@ def test_loop_with_mp(
             # 이렇게 해야 문맥과 길이 등이 고려된 전체적인 BLEU 점수를 정확하게 측정할 수 있다
             if viz:
                 if step % (num_batches_test // 3) == 0:
-                    visualize(image_dir, log_name=wandb_log_name, step=step, model=model, loaders=loaders, cat_list=batch_test['cat'], inputs=inputs, preds=preds, labels=labels, n_examples=2)
+                    visualize(image_dir, log_name=wandb_log_name, step=step, model=model, loaders=loaders, cat_list=batch_test['cat'], inputs=inputs, preds=preds, labels=labels, n_examples=2, texts=viz_texts)
 
             loaders.add_batch_to_metrics(preds, labels)
             loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
-        
+    
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    for t in viz_texts:
+        print(t)
+    # visualize 함수에서 생성된 text들 출력
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     result = loaders.compute_metrics()
 
     result_per_cat = loaders.compute_metrics_per_cat()
 
-    return result, result_per_cat, test_total_tokens
+    return result, result_per_cat, test_total_tokens, test_total_tokens_input

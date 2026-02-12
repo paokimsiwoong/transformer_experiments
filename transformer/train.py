@@ -255,7 +255,7 @@ def train(
         epoch_start = datetime.now()
 
         if mp:
-            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop_with_mp(
+            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens, epoch_total_tokens_input = train_loop_with_mp(
                 loaders,
                 model,
                 criterion,
@@ -268,7 +268,7 @@ def train(
                 debug,
             )
         else:
-            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens = train_loop(
+            epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens, epoch_total_tokens_input = train_loop(
                 loaders,
                 model,
                 criterion,
@@ -296,7 +296,7 @@ def train(
         print("".center(50, "-"))
         print("".center(50, "-"))
         print(
-            f"==>> epoch {epoch+1} train_time: {train_time}\nepoch_total_tokens: {epoch_total_tokens}"
+            f"==>> epoch {epoch+1} train_time: {train_time}\nepoch_total_tokens: {epoch_total_tokens}\nepoch_total_tokens_input: {epoch_total_tokens_input}"
         )
         print("".center(50, "-"))
         print(
@@ -340,7 +340,7 @@ def train(
             val_start = datetime.now()
             
             if mp:
-                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens = val_loop_with_mp(
+                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens, val_total_tokens_input = val_loop_with_mp(
                     loaders,
                     model,
                     criterion,
@@ -349,7 +349,7 @@ def train(
                     val_break,
                 )
             else:
-                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens = val_loop(
+                val_loss, val_mean_batch_loss, val_mean_token_loss, val_total_tokens, val_total_tokens_input = val_loop(
                     loaders,
                     model,
                     criterion,
@@ -373,7 +373,7 @@ def train(
             print("".center(50, "-"))
             print("".center(50, "-"))
             print(
-                f"==>> epoch {epoch+1} validation time: {val_time}\nval_total_tokens: {val_total_tokens}"
+                f"==>> epoch {epoch+1} validation time: {val_time}\nval_total_tokens: {val_total_tokens}\nval_total_tokens_input: {val_total_tokens_input}"
             )
             print("".center(50, "-"))
             print(
@@ -419,7 +419,7 @@ def train(
             test_start = datetime.now()
 
             if mp:
-                result, result_per_cat, test_total_tokens = test_loop_with_mp(
+                result, result_per_cat, test_total_tokens, test_total_tokens_input = test_loop_with_mp(
                     loaders,
                     model,
                     device,
@@ -429,7 +429,7 @@ def train(
                     test_break,
                 )
             else:
-                result, result_per_cat, test_total_tokens = test_loop(
+                result, result_per_cat, test_total_tokens, test_total_tokens_input = test_loop(
                     loaders,
                     model,
                     device,
@@ -454,7 +454,7 @@ def train(
             print("".center(50, "-"))
             print("".center(50, "-"))
             print(
-                f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}"
+                f"==>> test time: {test_time}\ntest_total_tokens: {test_total_tokens}\ntest_total_tokens_input: {test_total_tokens_input}"
             )
             print("".center(50, "-"))
             print(f"test_bleu: {test_bleu}")

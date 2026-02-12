@@ -10,7 +10,7 @@ import warnings
 # UserWarning 중에서 메시지에 'Automatically deduplicated selection parameter'가 포함된 경고 무시
 warnings.filterwarnings("ignore", message="Automatically deduplicated selection parameter", category=UserWarning)
 
-def visualize(image_dir, log_name, step, model, loaders, cat_list, inputs, preds, labels, n_examples=4):
+def visualize(image_dir, log_name, step, model, loaders, cat_list, inputs, preds, labels, n_examples=4, texts=[]):
     if not osp.exists(image_dir):
         os.makedirs(image_dir)
 
@@ -42,17 +42,23 @@ def visualize(image_dir, log_name, step, model, loaders, cat_list, inputs, preds
         decoded_labels = [label.strip() for label in decoded_labels if label != "<pad>"]
         # batch size가 1이면 loader의 collate_fn 설정에 의해 pad 토큰이 없지만 일단 유지
 
-        print(
-            "Source Text (Input)        : "
-            + " ".join(decoded_inputs)
-        )
-        print(
-            "Target Text (Ground Truth) : "
-            + " ".join(decoded_labels)
-        )
-        print("Model Output             : " 
-              + " ".join(decoded_preds)
-        )
+        # print(
+        #     "Source Text (Input)        : "
+        #     + " ".join(decoded_inputs)
+        # )
+        # print(
+        #     "Target Text (Ground Truth) : "
+        #     + " ".join(decoded_labels)
+        # )
+        # print(
+        #     "Model Output               : " 
+        #       + " ".join(decoded_preds)
+        # )
+
+        texts.append("Source Text (Input)        : " + " ".join(decoded_inputs))
+        texts.append("Target Text (Ground Truth) : " + " ".join(decoded_labels))
+        texts.append("Model Output               : " + " ".join(decoded_preds))
+
         results[i] = (cat_list[i], decoded_inputs, decoded_labels, preds[i], decoded_preds)
 
 

@@ -24,7 +24,7 @@ class Loaders():
             self,
             data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data.csv",
             max_token_length = 512,
-            target_tokens = 10000,
+            target_tokens = 2000,
             batch_size_train = 8,
             num_workers = 4,
             batch_size_val = 4,
@@ -386,6 +386,8 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
 
     new_batch['ntokens'] = sum([l.numel() for l in new_batch['labels']])
 
+    new_batch['ntokens_input'] = sum(new_batch['length'])
+
     # decoder input의 attention mask 생성
     new_batch['decoder_mask'] = [torch.ones_like(d_inp, dtype=torch.long) for d_inp in new_batch['decoder_inputs']]
 
@@ -491,6 +493,9 @@ class TokenBatchSampler(Sampler):
     # __len__: 총 배치 수를 알려주는 메소드
     # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
     def __len__(self):
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ 40586486, 31.66 값은 label 기준이므로 수정 필요
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # 학습셋 총 토큰 40586486개
         # 데이터 당 평균 토큰 수 31.66개 ~ 32
 
@@ -537,8 +542,8 @@ class SortedTokenBatchSampler(Sampler):
             indices = list(range(self.num_samples))
 
 
-        # if self.epoch % 2 == 1:
-        if self.epoch % 2 == 0: # 임시로 긴문장부터 학습해서 메모리 사용량 체크 시
+        if self.epoch % 2 == 1:
+        # if self.epoch % 2 == 0: # 임시로 긴문장부터 학습해서 메모리 사용량 체크 시
             # epoch은 0부터 시작=> 0 epoch은 짧은 문장부터 학습하고
             # 1 epoch은 reverse해서 긴 문장부터 학습
             indices.reverse()
