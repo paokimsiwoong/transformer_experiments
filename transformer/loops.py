@@ -14,7 +14,14 @@ from utils import check_nan_in_parameters
 import gc
 # gc.collect()로 python 객체 정리
 
+# cache 청소를 실행할 reserved 메모리 크기 기준
 MEM_THRESHOLD = 15.0
+# @@@ 16이 아니라 15로 두는 이유
+# @@@ @@@ nvidia-smi used  >  memory_reserved  ≥  memory_allocated
+# @@@ @@@ torch.cuda.memory_reserved() 값이 15.0 이어도
+# @@@ @@@ CUDA context(5~800MB), cuBLAS workspaces(libarary workspace) 등등의 
+# @@@ @@@ 부수적인 메모리 사용량까지 더해진 실제 메모리 사용량(nvidia-smi used)은 16.0에 근접하거나 넘을 수 있다
+MEM_COL_PATIENCE = 10
 
 def train_loop(
         loaders:Loaders,
@@ -40,24 +47,31 @@ def train_loop(
 
     num_batches_train = len(loaders.loader_train)
 
+    # token based sampler 사용 시,
+    # 매 에폭 시작 시점에 set_epoch_indices 메소드 실행 필요
+    if loaders.target_tokens is not None:
+        loaders.sampler.set_epoch_indices()
+
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 메모리 증가량 확인용 변수들
-    # mem_a_start = 0.0
-    # mem_r_start = 0.0
-    # mem_a_to = 0.0
-    # mem_r_to = 0.0
-    # mem_a_outloss = 0.0
-    # mem_r_outloss = 0.0
-    # mem_a_backword = 0.0
-    # mem_r_backword = 0.0
-    # mem_a_gradcheck = 0.0
-    # mem_r_gradcheck = 0.0
-    # mem_a_log = 0.0
-    # mem_r_log = 0.0
-    # mem_a_stepupdate = 0.0
-    # mem_r_stepupdate = 0.0
-    # mem_a_end = 0.0
-    # mem_r_end = 0.0
+    mem_a_start = 0.0
+    mem_r_start = 0.0
+    mem_a_to = 0.0
+    mem_r_to = 0.0
+    mem_a_outloss = 0.0
+    mem_r_outloss = 0.0
+    mem_a_backword = 0.0
+    mem_r_backword = 0.0
+    mem_a_gradcheck = 0.0
+    mem_r_gradcheck = 0.0
+    mem_a_log = 0.0
+    mem_r_log = 0.0
+    mem_a_stepupdate = 0.0
+    mem_r_stepupdate = 0.0
+    mem_a_end = 0.0
+    mem_r_end = 0.0
+
+    mem_threshold_touch_count = 0
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     for step, batch in tqdm(
@@ -75,33 +89,38 @@ def train_loop(
         current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
         if current_memory_gb > MEM_THRESHOLD: 
-            print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
+            mem_threshold_touch_count += 1
 
-            # print(f"==>> mem_a_start: {mem_a_start}")
-            # print(f"==>> mem_r_start: {mem_r_start}")
-            # print(f"==>> mem_a_to: {mem_a_to}")
-            # print(f"==>> mem_r_to: {mem_r_to}")
-            # print(f"==>> mem_a_outloss: {mem_a_outloss}")
-            # print(f"==>> mem_r_outloss: {mem_r_outloss}")
-            # print(f"==>> mem_a_backword: {mem_a_backword}")
-            # print(f"==>> mem_r_backword: {mem_r_backword}")
-            # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
-            # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
-            # print(f"==>> mem_a_log: {mem_a_log}")
-            # print(f"==>> mem_r_log: {mem_r_log}")
-            # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
-            # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
-            # print(f"==>> mem_a_end: {mem_a_end}")
-            # print(f"==>> mem_r_end: {mem_r_end}")
+            if mem_threshold_touch_count >= MEM_COL_PATIENCE:
+                # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
 
-            gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                # print(f"==>> mem_a_start: {mem_a_start}")
+                # print(f"==>> mem_r_start: {mem_r_start}")
+                # print(f"==>> mem_a_to: {mem_a_to}")
+                # print(f"==>> mem_r_to: {mem_r_to}")
+                # print(f"==>> mem_a_outloss: {mem_a_outloss}")
+                # print(f"==>> mem_r_outloss: {mem_r_outloss}")
+                # print(f"==>> mem_a_backword: {mem_a_backword}")
+                # print(f"==>> mem_r_backword: {mem_r_backword}")
+                # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
+                # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
+                # print(f"==>> mem_a_log: {mem_a_log}")
+                # print(f"==>> mem_r_log: {mem_r_log}")
+                # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
+                # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
+                # print(f"==>> mem_a_end: {mem_a_end}")
+                # print(f"==>> mem_r_end: {mem_r_end}")
+
+                gc.collect()
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
+                mem_threshold_touch_count = 0
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_start = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_start = torch.cuda.memory_reserved() / 1024**3
+        mem_a_start = torch.cuda.memory_allocated() / 1024**3
+        mem_r_start = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -134,8 +153,8 @@ def train_loop(
         gt_masks = batch['decoder_mask'].to(device, non_blocking=True)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_to = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_to = torch.cuda.memory_reserved() / 1024**3 
+        mem_a_to = torch.cuda.memory_allocated() / 1024**3
+        mem_r_to = torch.cuda.memory_reserved() / 1024**3 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         out = model(inputs, gts, x_masks, gt_masks)
@@ -192,8 +211,8 @@ def train_loop(
         normalized_loss = loss / batch_ntokens
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
+        mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
+        mem_r_outloss = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         loss_value = loss.item()
@@ -202,8 +221,8 @@ def train_loop(
         normalized_loss.backward()
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_backword = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_backword = torch.cuda.memory_reserved() / 1024**3
+        mem_a_backword = torch.cuda.memory_allocated() / 1024**3
+        mem_r_backword = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -243,8 +262,8 @@ def train_loop(
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+        mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
+        mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         if wandb_mode != "disabled":
@@ -282,16 +301,16 @@ def train_loop(
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_log = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_log = torch.cuda.memory_reserved() / 1024**3
+        mem_a_log = torch.cuda.memory_allocated() / 1024**3
+        mem_r_log = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         optimizer.step()
         scheduler.step()
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+        mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
+        mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         if debug:
@@ -304,10 +323,31 @@ def train_loop(
         epoch_loss += loss_value
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # mem_a_end = torch.cuda.memory_allocated() / 1024**3
-        # mem_r_end = torch.cuda.memory_reserved() / 1024**3
+        mem_a_end = torch.cuda.memory_allocated() / 1024**3
+        mem_r_end = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+        if wandb_mode != "disabled":
+            wandb_mem_dict = {
+                "mem_a_start" : mem_a_start,
+                "mem_r_start" : mem_r_start,
+                "mem_a_to" : mem_a_to,
+                "mem_r_to" : mem_r_to,
+                "mem_a_outloss" : mem_a_outloss,
+                "mem_r_outloss" : mem_r_outloss,
+                "mem_a_backword" : mem_a_backword,
+                "mem_r_backword" : mem_r_backword,
+                "mem_a_gradcheck" : mem_a_gradcheck,
+                "mem_r_gradcheck" : mem_r_gradcheck,
+                "mem_a_log" : mem_a_log,
+                "mem_r_log" : mem_r_log,
+                "mem_a_stepupdate" : mem_a_stepupdate,
+                "mem_r_stepupdate" : mem_r_stepupdate,
+                "mem_a_end" : mem_a_end,
+                "mem_r_end" : mem_r_end,
+            }
+
+            wandb.log(wandb_mem_dict)
 
     # 배치당 loss 값의 평균 계산
     epoch_mean_batch_loss = epoch_loss / num_batches_train
@@ -410,6 +450,13 @@ def test_loop(
 
     model.eval()
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    # 루프 중간에 print를 하면 cpu가 gpu에 sync 요청을 해 속도가 느려진다
+    # https://medium.com/@varuntej07/why-pytorch-wastes-your-gpu-memory-on-purpose-and-why-thats-brilliant-0a76899797fb
+    # => visualize 내부에서 print를 바로 하지말고 str을 저장했다가 모든 step이 끝나면 출력하도록 변경하기
+    viz_texts = []
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     with torch.no_grad():
 
         test_total_tokens = 0
@@ -460,11 +507,17 @@ def test_loop(
             # 이렇게 해야 문맥과 길이 등이 고려된 전체적인 BLEU 점수를 정확하게 측정할 수 있다
             if viz:
                 if step % (num_batches_test // 3) == 0:
-                    visualize(image_dir, log_name=wandb_log_name, step=step, model=model, loaders=loaders, cat_list=batch_test['cat'], inputs=inputs, preds=preds, labels=labels, n_examples=2)
+                    visualize(image_dir, log_name=wandb_log_name, step=step, model=model, loaders=loaders, cat_list=batch_test['cat'], inputs=inputs, preds=preds, labels=labels, n_examples=2, texts=viz_texts)
 
             loaders.add_batch_to_metrics(preds, labels)
             loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
-        
+
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    for t in viz_texts:
+        print(t)
+    # visualize 함수에서 생성된 text들 출력
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     result = loaders.compute_metrics()
 
     result_per_cat = loaders.compute_metrics_per_cat()
@@ -498,6 +551,11 @@ def train_loop_with_mp(
 
     num_batches_train = len(loaders.loader_train)
 
+    # token based sampler 사용 시,
+    # 매 에폭 시작 시점에 set_epoch_indices 메소드 실행 필요
+    if loaders.target_tokens is not None:
+        loaders.sampler.set_epoch_indices()
+
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 메모리 증가량 확인용 변수들
     mem_a_start = 0.0
@@ -518,6 +576,8 @@ def train_loop_with_mp(
     mem_r_log2 = 0.0
     mem_a_end = 0.0
     mem_r_end = 0.0
+
+    mem_threshold_touch_count = 0
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     for step, batch in tqdm(
@@ -529,37 +589,24 @@ def train_loop_with_mp(
         if train_break:
             break
 
+        # if step == 500:
+        #     break
+
         optimizer.zero_grad()
         
         # current_memory_gb = torch.cuda.memory_allocated() / 1024**3
-        # current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+        current_memory_gb = torch.cuda.memory_reserved() / 1024**3
 
-        # if current_memory_gb > MEM_THRESHOLD: 
-            # # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
+        if current_memory_gb > MEM_THRESHOLD: 
+            mem_threshold_touch_count += 1
+            if mem_threshold_touch_count >= MEM_COL_PATIENCE:
+                # # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
 
-            # # print(f"==>> mem_a_start: {mem_a_start}")
-            # # print(f"==>> mem_r_start: {mem_r_start}")
-            # # print(f"==>> mem_a_to: {mem_a_to}")
-            # # print(f"==>> mem_r_to: {mem_r_to}")
-            # # print(f"==>> mem_a_outloss: {mem_a_outloss}")
-            # # print(f"==>> mem_r_outloss: {mem_r_outloss}")
-            # # print(f"==>> mem_a_backword: {mem_a_backword}")
-            # # print(f"==>> mem_r_backword: {mem_r_backword}")
-            # # print(f"==>> mem_a_gradcheck: {mem_a_gradcheck}")
-            # # print(f"==>> mem_r_gradcheck: {mem_r_gradcheck}")
-            # # print(f"==>> mem_a_log: {mem_a_log}")
-            # # print(f"==>> mem_r_log: {mem_r_log}")
-            # # print(f"==>> mem_a_stepupdate: {mem_a_stepupdate}")
-            # # print(f"==>> mem_r_stepupdate: {mem_r_stepupdate}")
-            # # print(f"==>> mem_a_log2: {mem_a_log2}")
-            # # print(f"==>> mem_r_log2: {mem_r_log2}")
-            # # print(f"==>> mem_a_end: {mem_a_end}")
-            # # print(f"==>> mem_r_end: {mem_r_end}")
-
-            # gc.collect()
-            # torch.cuda.empty_cache()
-            # torch.cuda.synchronize()
-            # # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                gc.collect()
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                # # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                mem_threshold_touch_count = 0
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_start = torch.cuda.memory_allocated() / 1024**3

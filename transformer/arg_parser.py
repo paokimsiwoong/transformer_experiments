@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=4)
     # gpu 개수 * 4로 설정하는 것이 좋다는 의견이 있음
 
-    parser.add_argument("--target_tokens", type=int, default=10000)
+    parser.add_argument("--target_tokens", type=int, default=None)
 
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_batch_size", type=int, default=32)
