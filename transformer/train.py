@@ -81,7 +81,9 @@ def train(
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # @@@ 공유 메모리 사용 문제 해결
-    # os.environ["PYTORCH_ALLOC_CONF"] = "max_split_size_mb:512,expandable_segments:True"
+    # os.environ["PYTORCH_ALLOC_CONF"] = "max_split_size_mb:512"
+    # os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+    os.environ["PYTORCH_ALLOC_CONF"] = "max_split_size_mb:512,expandable_segments:True"
     # @@@ 사용하면 메모리 사용량이 들쭉날쭉 계속 변하면서 느려짐
     # max_split_size_mb:512로 큰 텐서 할당시 블록 개수를 줄여 조각화 방지 
     # expandable_segments:True는 기존 블록의 크기가 부족하면 동적으로 크기를 늘려서 새 블록 할당을 최소화
