@@ -130,9 +130,11 @@ class Loaders():
         # loops.py에서 각 에폭 시작 시점에 self.target_tokens 확인 후 
         # None이 아니면 self.sampler의 set_epoch_indices 메소드 실행
 
+        self.batch_size_train = batch_size_train
+
         if target_tokens is not None:
             # @@@ 길이 별 bucketing 안할 경우
-            self.sampler = TokenBatchSampler(
+            self.sampler = TokenPadBatchSampler(
                 self.datasets["train"], 
                 target_tokens=target_tokens,
                 max_batch_samples=batch_size_train,
@@ -464,8 +466,8 @@ class TokenBatchSampler(Sampler):
             while (current_tokens < self.target_tokens and 
                 #    len(batch) < self.max_batch_samples and 
                    i < len(indices)):
-            # 현재 배치 내 총 토큰 수가 target_tokens=10000 보다 작고
-            # 배치 내 sample 개수가 max_batch_samples=64 보다 작고
+            # 현재 배치 내 총 토큰 수가 target_tokens 보다 작고
+            # 배치 내 sample 개수가 max_batch_samples 보다 작고
             # 데이터셋에 남은 데이터가 있을때 while loop
                 
                 idx = indices[i]
@@ -510,6 +512,86 @@ class TokenBatchSampler(Sampler):
             # return (self.num_samples // self.max_batch_samples) + 1
 
         # => (40586486 // 10000) + 1
+        return (self.total_token_count // self.target_tokens) + 1
+    
+# 각 배치 내 최대길이 * 배치 갯수 값을 일정값으로 고정하는 sampler
+class TokenPadBatchSampler(TokenBatchSampler):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 29704824, mean_token_count = 23):
+        super().__init__(dataset, target_tokens, max_batch_samples, total_token_count, mean_token_count)
+        
+    # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
+    def __iter__(self):
+        indices = self.indices
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ num_workers > 0 인 경우 여러 worker가 동일 인덱스를 순회하지 않도록 indices를 쪼개줘야 한다
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            # 현재 __iter__를 호출한 worker id (ex: 0, 1, 2, 3)
+            num_workers = worker_info.num_workers
+            # 총 worker 수 (ex: 4)
+            indices = self.indices[worker_id::num_workers]
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        
+        i = 0
+        while i < len(indices): # 데이터셋의 데이터 전부를 처리할때까지 while loop
+            batch = []
+            current_tokens = 0
+            # 배치 내 총 토큰수 카운트
+
+            b_max_length = 0
+            # 배치 내 문장 최대 길이
+            current_tokenpads = 0
+            # 배치 내 총 토큰+패드 수 카운트
+            
+            while (current_tokens < self.target_tokens and 
+                   len(batch) * b_max_length < self.target_tokens and
+                   i < len(indices)):
+            # 현재 배치 내 총 토큰 수가 target_tokens 보다 작고
+            # 배치 내 sample 개수 * 배치 내 문장 토큰 최대 길이가 target_tokens 보다 작고
+            # 데이터셋에 남은 데이터가 있을때 while loop
+                
+                idx = indices[i]
+
+                if self.lengths[idx] <= b_max_length:
+                    # 새 문장 토큰 길이가 기존 최대값보다 작거나 같으면
+                    if current_tokenpads + b_max_length > self.target_tokens:
+                        # 최대값 * (배치 개수 + 1(새문장)) 값이 self.target_tokens보다 큰지 확인하고
+                        # 클 경우 새문장을 제외한 기존 배치만 yield
+                        break
+                else:
+                    # 새 문장 토큰 길이가 기존 최대값보다 크면
+                    if (len(batch) + 1) * self.lengths[idx] > self.target_tokens:
+                        # 새문장 토큰 길이를 최대값 기준으로 배치 내 총 토큰+패드 개수를 계산 했을 때
+                        # 이 값이 self.target_tokens 보다 크면 갱신을 취소하고
+                        # 새 문장을 제외한 기존 배치만 yield
+                        break
+
+                    b_max_length = self.lengths[idx]
+                    # 최대값을 갱신해도 총 토큰+패드 개수가 self.target_tokens를 안넘으면
+                    # 최대값을 갱신
+
+                if current_tokens + self.lengths[idx] > self.target_tokens:
+                    # 이번 문장이 들어오면 배치 내 총 토큰 수가
+                    # self.target_tokens 보다 커질 경우
+                    # 큰 문장을 포함하기 전 배치를 바로 yield
+                    break
+
+                batch.append(idx)
+                current_tokens += self.lengths[idx]
+                current_tokenpads = len(batch) * b_max_length
+
+                i += 1
+            
+            if len(batch) >= 1:
+                yield batch
+
+    # __len__: 총 배치 수를 알려주는 메소드
+    # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
+    def __len__(self):
+        # 토큰+패드 기준으로 배치 크기를 제한하므로
+        # __len__값은 부정확
         return (self.total_token_count // self.target_tokens) + 1
 
 # Dataset.sort("length")로 bucketing 시 사용하는 custom sampler
