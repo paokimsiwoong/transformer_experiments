@@ -119,6 +119,7 @@ class Loaders():
             batch["length"] = [len(inp) for inp in batch["input_ids"]] 
             # @@@ map함수에 batched=True여야함
             # @@@ False이면 batch["length"] = len(batch["input_ids"])
+            batch["length_label"] = [len(label) for label in batch["labels"]] 
             return batch
         self.datasets = self.datasets.map(add_length, batched=True, num_proc=NUM_CPU)
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -131,6 +132,8 @@ class Loaders():
         # None이 아니면 self.sampler의 set_epoch_indices 메소드 실행
 
         self.batch_size_train = batch_size_train
+        self.batch_size_val = batch_size_val
+        self.batch_size_test = batch_size_test
 
         if target_tokens is not None:
             # @@@ 길이 별 bucketing 안할 경우
@@ -365,7 +368,7 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     # batch는 [{'kor':..., 'en':..., 'cat':숫자, 'input_ids':[...], 'attention_mask':[1, ...], 'labels': [...]}, ...] 형태
     
     # keys = batch[0].keys()
-    keys = ['kor', 'en', 'cat', 'input_ids', 'attention_mask', 'labels', 'length'] 
+    keys = ['kor', 'en', 'cat', 'input_ids', 'attention_mask', 'labels', 'length', 'length_label'] 
     # @@@ length는 input_ids의 토큰 개수
     # print(f"==>> keys: {keys}")
     # print("".center(50, "-"))

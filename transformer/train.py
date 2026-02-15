@@ -266,6 +266,7 @@ def train(
                 mp_scaler,
                 device,
                 wandb_mode,
+                train_start,
                 train_break,
                 debug,
             )

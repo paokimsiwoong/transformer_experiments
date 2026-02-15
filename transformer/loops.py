@@ -21,7 +21,26 @@ MEM_THRESHOLD = 15.0
 # @@@ @@@ torch.cuda.memory_reserved() 값이 15.0 이어도
 # @@@ @@@ CUDA context(5~800MB), cuBLAS workspaces(libarary workspace) 등등의 
 # @@@ @@@ 부수적인 메모리 사용량까지 더해진 실제 메모리 사용량(nvidia-smi used)은 16.0에 근접하거나 넘을 수 있다
+
+# reserved 메모리 크기 기준을 넘긴 상태에서 cache 청소 전 몇 step까지 기다려볼지 정하는 값
 MEM_COL_PATIENCE = 1
+
+# 메모리 pre-allocation
+PREALLOCATE_BATCH_SIZE = 32
+PREALLOCATE_SEQ_SIZE = 256
+# train set input, label 최대길이
+# ==>> df['length'].max(): 157
+# ==>> df['length_label'].max(): 224
+PREALLOCATE_BATCH_SIZE_VAL = 64
+PREALLOCATE_SEQ_SIZE_VAL = 200
+# val set input, label 최대길이
+# ==>> df_val['length'].max(): 149
+# ==>> df_val['length_label'].max(): 198
+PREALLOCATE_BATCH_SIZE_TEST = 64
+PREALLOCATE_SEQ_SIZE_TEST = 150
+# test set input, label 최대길이
+# ==>> df_test['length'].max(): 96
+# ==>> df_test['length_label'].max(): 141
 
 def train_loop(
         loaders:Loaders,
@@ -548,7 +567,7 @@ def train_loop_with_mp(
     # 32*512일 경우 Peak memory: 23.6GB
     # preallocate_memory(model, loaders.len_vocab, criterion, optimizer, max_batch_size=loaders.batch_size_train, max_seq_len=(loaders.max_token_length // 2), device=device)
     # 32*256일 경우 Peak memory: 12.1GB (실 사용량 15.0)
-    preallocate_memory(model, loaders.len_vocab, criterion, optimizer, max_batch_size=32, max_seq_len=(loaders.max_token_length // 2), device=device)
+    preallocate_memory(model, loaders.len_vocab, criterion, optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, device=device)
 
 
     epoch_loss = 0
@@ -616,6 +635,20 @@ def train_loop_with_mp(
         #         torch.cuda.synchronize()
         #         # # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         #         mem_threshold_touch_count = 0
+        input_numel = batch['input_ids'].numel()
+        gt_numel = batch['decoder_inputs'].numel()
+
+        if input_numel + gt_numel > PREALLOCATE_BATCH_SIZE * PREALLOCATE_SEQ_SIZE * 2:
+            current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+            print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {PREALLOCATE_BATCH_SIZE * PREALLOCATE_SEQ_SIZE * 2}, cleaning...")
+            print(f"input_batch_size {batch['input_ids'].size(0)} label_batch_size {batch['decoder_inputs'].size(0)}")
+            print(f"Memory before cleanup: {current_memory_gb:.2f}GB")
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_start = torch.cuda.memory_allocated() / 1024**3
@@ -942,6 +975,17 @@ def train_loop_with_mp(
 
             wandb.log(wandb_mem_dict)
 
+        if input_numel + gt_numel > PREALLOCATE_BATCH_SIZE * PREALLOCATE_SEQ_SIZE * 2:
+            current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+            print(f"Step {step} finished:")
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            preallocate_memory(model, loaders.len_vocab, criterion, optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, device=device)
+
+            print(f"After preallocation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
 
     # 배치당 loss 값의 평균 계산
     epoch_mean_batch_loss = epoch_loss / num_batches_train
@@ -969,8 +1013,10 @@ def val_loop_with_mp(
     # # test_pths.ipynb 확인 결과 1.2배
     # model= model.half()
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    preallocate_memory_no_grad(model, loaders.len_vocab, criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, device=device)
 
     with torch.no_grad():
+
         val_loss = 0
         val_total_tokens = 0
 
@@ -1066,6 +1112,8 @@ def test_loop_with_mp(
 
     model.eval()
 
+    # preallocate_memory_inference(model, loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, device=device)
+
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 루프 중간에 print를 하면 cpu가 gpu에 sync 요청을 해 속도가 느려진다
     # https://medium.com/@varuntej07/why-pytorch-wastes-your-gpu-memory-on-purpose-and-why-thats-brilliant-0a76899797fb
@@ -1081,11 +1129,26 @@ def test_loop_with_mp(
 
         num_batches_test = len(loaders.loader_test)
 
+        mem_threshold_touch_count = 0
+
         for step, batch_test in tqdm(
             enumerate(loaders.loader_test), total=num_batches_test
         ):
             if test_break and step == 2:
                 break
+
+            current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+
+            if current_memory_gb > MEM_THRESHOLD: 
+                mem_threshold_touch_count += 1
+                if mem_threshold_touch_count >= MEM_COL_PATIENCE:
+                    # # print(f"Step {step}: Memory {current_memory_gb:.2f}GB > {MEM_THRESHOLD}GB, cleaning...")
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    # # print(f"After cleanup: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                    mem_threshold_touch_count = 0
 
             inputs = batch_test['input_ids'].to(device, non_blocking=True)
             # (batch_size, src_seq_len)
@@ -1186,4 +1249,78 @@ def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=3
     # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
     # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
     return peak_mem
+
+
+def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, max_seq_len=512, device="cuda"):
+    """
+    최대 크기 dummy batch로 메모리 미리 할당
+    """
+    print("Preallocating no grad memory...")
+
+    with torch.no_grad():
+        
+        # 최대 크기 더미 입력 생성
+        dummy_inputs = torch.randint(0, vocab_size, 
+                                    (max_batch_size, max_seq_len), 
+                                    device=device)
+        dummy_gts = torch.randint(0, vocab_size, 
+                                    (max_batch_size, max_seq_len), 
+                                    device=device)
+        dummy_x_masks = torch.ones_like(dummy_inputs, device=device)
+        dummy_gt_masks = torch.ones_like(dummy_gts, device=device)
+        
+        # 모델 forward + backward (실제 학습 X)
+        # model.train()
+        
+        with torch.amp.autocast(device_type=device):  # FP16으로 메모리 절약
+            out = model(dummy_inputs, dummy_gts, dummy_x_masks, dummy_gt_masks)
+            loss = criterion(out.contiguous().view(-1, out.size(-1)), dummy_gts.contiguous().view(-1))
+
+    
+    # 피크 메모리 기록
+    peak_mem = torch.cuda.max_memory_allocated() / 1024**3
+    print(f"No grad preallocation complete. Peak memory: {peak_mem:.1f}GB")
+    
+    # 피크 리셋 (실제 훈련 시작)
+    torch.cuda.reset_peak_memory_stats()
+    # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
+    # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
+    return peak_mem
+
+
+def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_len=512, device="cuda"):
+    """
+    최대 크기 dummy batch로 메모리 미리 할당
+    """
+    print("Preallocating inference memory...")
+
+    with torch.no_grad():
+    
+        # 최대 크기 더미 입력 생성
+        dummy_inputs = torch.randint(0, vocab_size, 
+                                    (max_batch_size, max_seq_len), 
+                                    device=device)
+        dummy_labels = torch.randint(0, vocab_size, 
+                                    (max_batch_size, max_seq_len), 
+                                    device=device)
+        dummy_x_masks = torch.ones_like(dummy_inputs, device=device)
+
+        
+        # 모델 forward + backward (실제 학습 X)
+        # model.train()
+        
+        with torch.amp.autocast(device_type=device):  # FP16으로 메모리 절약
+            preds = model.inference(dummy_inputs, dummy_x_masks, dummy_labels.size(-1) * 2, testing=True)
+
+    
+    # 피크 메모리 기록
+    peak_mem = torch.cuda.max_memory_allocated() / 1024**3
+    print(f"Inference preallocation complete. Peak memory: {peak_mem:.1f}GB")
+    
+    # 피크 리셋 (실제 훈련 시작)
+    torch.cuda.reset_peak_memory_stats()
+    # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
+    # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
+    return peak_mem
+
 
