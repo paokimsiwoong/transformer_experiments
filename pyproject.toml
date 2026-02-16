@@ -16,6 +16,7 @@ dependencies = [
     "matplotlib>=3.10.7",
     "nltk>=3.9.2",
     "numpy>=2.3.5",
+    "nvidia-ml-py3>=7.352.0",
     "opencv-contrib-python>=4.11.0.86",
     "pandas>=2.3.3",
     "protobuf>=6.33.1",
