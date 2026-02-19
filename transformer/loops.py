@@ -33,8 +33,10 @@ MEM_COL_PATIENCE = 1
 # 메모리 pre-allocation
 PREALLOCATE_BATCH_SIZE = 32
 # PREALLOCATE_SEQ_SIZE = 160
-PREALLOCATE_SEQ_SIZE = 230 # @@@ 그냥 같은 값으로 두는게 메모리는 더 먹어도 더 빠름?
-PREALLOCATE_SEQ_SIZE_GT = 230
+PREALLOCATE_SEQ_SIZE = 160
+# PREALLOCATE_SEQ_SIZE = 230 # @@@ 그냥 같은 값으로 두는게 메모리는 더 먹어도 더 빠름?
+# PREALLOCATE_SEQ_SIZE_GT = 230
+PREALLOCATE_SEQ_SIZE_GT = 160
 # train set input, label 최대길이
 # ==>> df['length'].max(): 157
 # ==>> df['length_label'].max(): 224
@@ -106,7 +108,7 @@ def train_loop(
     mem_r_end = 0.0
 
     # mem_threshold_touch_count = 0
-    # force_gc = force_gc_gen()
+    force_gc = force_gc_gen()
     # force_gc 함수 생성
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
@@ -121,9 +123,6 @@ def train_loop(
 
         optimizer.zero_grad()
 
-        # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-        # force_gc()
-
         precheck = step_precheck(
             step, 
             batch['input_ids'].numel(), 
@@ -134,6 +133,10 @@ def train_loop(
             batch['input_ids'].size(0),
             batch['decoder_inputs'].size(0)
         )
+
+        if not precheck:
+            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+            precheck = force_gc()
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_start = torch.cuda.memory_allocated() / 1024**3
@@ -668,7 +671,7 @@ def train_loop_with_mp(
     mem_r_end = 0.0
 
     # mem_threshold_touch_count = 0
-    # force_gc = force_gc_gen()
+    force_gc = force_gc_gen()
     # force_gc 함수 생성
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
@@ -686,8 +689,6 @@ def train_loop_with_mp(
 
         optimizer.zero_grad()
         
-        # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-        # force_gc()
 
         precheck = step_precheck(
             step, 
@@ -699,6 +700,10 @@ def train_loop_with_mp(
             batch['input_ids'].size(0),
             batch['decoder_inputs'].size(0)
         )
+
+        if not precheck:
+            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+            precheck = force_gc()
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_start = torch.cuda.memory_allocated() / 1024**3
@@ -1449,13 +1454,16 @@ def force_gc_gen():
                 torch.cuda.synchronize()
 
                 mem_threshold_touch_count = 0
+                return True
+            return False
+        return False
 
     return force_gc
 
 # 현재 step에 할당해야할 텐서가 preallocation 크기보다 커지면 메모리 정리하는 함수
 def step_precheck(step, input_numel, gt_numel, pre_batch_size, pre_seq_size, pre_seq_size_gt, step_batch_size, step_label_batch_size):
     if input_numel + gt_numel > (pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt) :
-        print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size * 2}, cleaning...")
+        print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt}, cleaning...")
         print(f"input_batch_size {step_batch_size} label_batch_size {step_label_batch_size}")
         print(f"Memory before cleanup")
         print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
