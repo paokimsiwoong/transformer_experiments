@@ -9,6 +9,9 @@ import math
 import blocks, embeddings, pe
 from utils import WeightTying
 
+import torch.utils.checkpoint as cp
+# 메모리 절약을 위한 gradient checkpointing
+
 # https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/tutorial6/Transformers_and_MHAttention.html
 # https://www.kaggle.com/code/arunmohan003/transformer-from-scratch-using-pytorch
 # https://cpm0722.github.io/pytorch-implementation/transformer
@@ -32,7 +35,13 @@ class Encoder(nn.Module):
         out = Q
 
         for m in self.blocks:
-            out = m(out, mask, testing)
+            # out = m(out, mask, testing)
+
+            if testing:
+            # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+                out = m(out, mask, testing)
+            else:
+                out = cp.checkpoint(m, out, mask, testing, use_reentrant=False)
 
         return out
 
@@ -62,7 +71,13 @@ class Decoder(nn.Module):
         out = Q
 
         for m in self.blocks:
-            out = m(out, K, V, tgt_mask, src_mask, testing)
+            # out = m(out, K, V, tgt_mask, src_mask, testing)
+
+            if testing:
+            # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+                out = m(out, K, V, tgt_mask, src_mask, testing)
+            else:
+                out = cp.checkpoint(m, out, K, V, tgt_mask, src_mask, testing, use_reentrant=False)
 
         return out
 

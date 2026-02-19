@@ -32,19 +32,22 @@ MEM_COL_PATIENCE = 1
 
 # 메모리 pre-allocation
 PREALLOCATE_BATCH_SIZE = 32
-PREALLOCATE_SEQ_SIZE = 160
+# PREALLOCATE_SEQ_SIZE = 160
+PREALLOCATE_SEQ_SIZE = 230 # @@@ 그냥 같은 값으로 두는게 메모리는 더 먹어도 더 빠름?
 PREALLOCATE_SEQ_SIZE_GT = 230
 # train set input, label 최대길이
 # ==>> df['length'].max(): 157
 # ==>> df['length_label'].max(): 224
 PREALLOCATE_BATCH_SIZE_VAL = 32
-PREALLOCATE_SEQ_SIZE_VAL = 150
+# PREALLOCATE_SEQ_SIZE_VAL = 150
+PREALLOCATE_SEQ_SIZE_VAL = 200
 PREALLOCATE_SEQ_SIZE_GT_VAL = 200
 # val set input, label 최대길이
 # ==>> df_val['length'].max(): 149
 # ==>> df_val['length_label'].max(): 198
 PREALLOCATE_BATCH_SIZE_TEST = 64
-PREALLOCATE_SEQ_SIZE_TEST = 100
+# PREALLOCATE_SEQ_SIZE_TEST = 100
+PREALLOCATE_SEQ_SIZE_TEST = 150
 PREALLOCATE_SEQ_SIZE_GT_TEST = 150
 # test set input, label 최대길이
 # ==>> df_test['length'].max(): 96
@@ -127,6 +130,7 @@ def train_loop(
             batch['decoder_inputs'].numel(),
             PREALLOCATE_BATCH_SIZE,
             PREALLOCATE_SEQ_SIZE,
+            PREALLOCATE_SEQ_SIZE_GT,
             batch['input_ids'].size(0),
             batch['decoder_inputs'].size(0)
         )
@@ -419,6 +423,7 @@ def val_loop(
                 batch_val['decoder_inputs'].numel(),
                 PREALLOCATE_BATCH_SIZE_VAL,
                 PREALLOCATE_SEQ_SIZE_VAL,
+                PREALLOCATE_SEQ_SIZE_GT_VAL,
                 batch_val['input_ids'].size(0),
                 batch_val['decoder_inputs'].size(0)
             )
@@ -533,6 +538,7 @@ def test_loop(
             #     batch_test['decoder_inputs'].numel(),
             #     PREALLOCATE_BATCH_SIZE_TEST,
             #     PREALLOCATE_SEQ_SIZE_TEST,
+            #     PREALLOCATE_SEQ_SIZE_GT_TEST,
             #     batch_test['input_ids'].size(0),
             #     batch_test['decoder_inputs'].size(0)
             # )   
@@ -689,6 +695,7 @@ def train_loop_with_mp(
             batch['decoder_inputs'].numel(),
             PREALLOCATE_BATCH_SIZE,
             PREALLOCATE_SEQ_SIZE,
+            PREALLOCATE_SEQ_SIZE_GT,
             batch['input_ids'].size(0),
             batch['decoder_inputs'].size(0)
         )
@@ -1085,6 +1092,7 @@ def val_loop_with_mp(
                 batch_val['decoder_inputs'].numel(),
                 PREALLOCATE_BATCH_SIZE_VAL,
                 PREALLOCATE_SEQ_SIZE_VAL,
+                PREALLOCATE_SEQ_SIZE_GT_VAL,
                 batch_val['input_ids'].size(0),
                 batch_val['decoder_inputs'].size(0)
             )
@@ -1216,6 +1224,7 @@ def test_loop_with_mp(
             #     batch_test['decoder_inputs'].numel(),
             #     PREALLOCATE_BATCH_SIZE_TEST,
             #     PREALLOCATE_SEQ_SIZE_TEST,
+            #     PREALLOCATE_SEQ_SIZE_GT_TEST,
             #     batch_test['input_ids'].size(0),
             #     batch_test['decoder_inputs'].size(0)
             # )      
@@ -1444,8 +1453,8 @@ def force_gc_gen():
     return force_gc
 
 # 현재 step에 할당해야할 텐서가 preallocation 크기보다 커지면 메모리 정리하는 함수
-def step_precheck(step, input_numel, gt_numel, pre_batch_size, pre_seq_size, step_batch_size, step_label_batch_size):
-    if input_numel + gt_numel > pre_batch_size * pre_seq_size * 2:
+def step_precheck(step, input_numel, gt_numel, pre_batch_size, pre_seq_size, pre_seq_size_gt, step_batch_size, step_label_batch_size):
+    if input_numel + gt_numel > (pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt) :
         print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size * 2}, cleaning...")
         print(f"input_batch_size {step_batch_size} label_batch_size {step_label_batch_size}")
         print(f"Memory before cleanup")
