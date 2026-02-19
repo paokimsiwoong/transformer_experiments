@@ -32,17 +32,20 @@ MEM_COL_PATIENCE = 1
 
 # 메모리 pre-allocation
 PREALLOCATE_BATCH_SIZE = 32
-PREALLOCATE_SEQ_SIZE = 230
+PREALLOCATE_SEQ_SIZE = 160
+PREALLOCATE_SEQ_SIZE_GT = 230
 # train set input, label 최대길이
 # ==>> df['length'].max(): 157
 # ==>> df['length_label'].max(): 224
 PREALLOCATE_BATCH_SIZE_VAL = 32
-PREALLOCATE_SEQ_SIZE_VAL = 200
+PREALLOCATE_SEQ_SIZE_VAL = 150
+PREALLOCATE_SEQ_SIZE_GT_VAL = 200
 # val set input, label 최대길이
 # ==>> df_val['length'].max(): 149
 # ==>> df_val['length_label'].max(): 198
 PREALLOCATE_BATCH_SIZE_TEST = 64
-PREALLOCATE_SEQ_SIZE_TEST = 150
+PREALLOCATE_SEQ_SIZE_TEST = 100
+PREALLOCATE_SEQ_SIZE_GT_TEST = 150
 # test set input, label 최대길이
 # ==>> df_test['length'].max(): 96
 # ==>> df_test['length_label'].max(): 141
@@ -63,7 +66,7 @@ def train_loop(
     model.train()
 
     # step_precheck_after에서 사용가능하도록 partial 사용
-    fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, device=device)
+    fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT, device=device)
 
     fn_preallocate_memory()
 
@@ -387,7 +390,7 @@ def val_loop(
     model.eval()
 
     # step_precheck_after에서 사용가능하도록 partial 사용
-    fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, device=device)
+    fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_VAL, device=device)
     fn_preallocate_memory_no_grad()
 
     with torch.no_grad():
@@ -495,7 +498,7 @@ def test_loop(
     model.eval()
 
     # step_precheck_after에서 사용가능하도록 partial 사용
-    # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, device=device)
+    # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_TEST, device=device)
     # fn_preallocate_memory_inference()
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -619,7 +622,7 @@ def train_loop_with_mp(
     # preallocate_memory(model, loaders.len_vocab, criterion, optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, device=device)
 
     # step_precheck_after에서 사용가능하도록 partial 사용
-    fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, device=device)
+    fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT, device=device)
 
     fn_preallocate_memory()
 
@@ -1051,7 +1054,7 @@ def val_loop_with_mp(
 
     # preallocate_memory_no_grad(model, loaders.len_vocab, criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, device=device)
     # step_precheck_after에서 사용가능하도록 partial 사용
-    fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, device=device)
+    fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_VAL, device=device)
     fn_preallocate_memory_no_grad()
 
     with torch.no_grad():
@@ -1177,7 +1180,7 @@ def test_loop_with_mp(
 
     # preallocate_memory_inference(model, loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, device=device)
     # step_precheck_after에서 사용가능하도록 partial 사용
-    # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, device=device)
+    # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_TEST, device=device)
     # fn_preallocate_memory_inference()
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -1281,7 +1284,7 @@ def test_loop_with_mp(
 # 학습 시작 전 최대 길이 더미 배치 1 step을 진행해
 # 최대 크기의 버퍼를 pre-allocate하도록 강제해서
 # 학습 도중 인풋 길이가 가변하더라도 버퍼를 그대로 사용해서 메모리 조각화 및 reserved 메모리 증가 문제를 해결
-def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=32, max_seq_len=512, device="cuda"):
+def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=32, max_seq_len=512, max_seq_len_gt=512, device="cuda"):
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
@@ -1292,7 +1295,7 @@ def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=3
                                    (max_batch_size, max_seq_len), 
                                    device=device)
     dummy_gts = torch.randint(0, vocab_size, 
-                                (max_batch_size, max_seq_len), 
+                                (max_batch_size, max_seq_len_gt), 
                                 device=device)
     dummy_x_masks = torch.ones_like(dummy_inputs, device=device)
     dummy_gt_masks = torch.ones_like(dummy_gts, device=device)
@@ -1329,7 +1332,7 @@ def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=3
     return peak_mem
 
 
-def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, max_seq_len=512, device="cuda"):
+def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, max_seq_len=512, max_seq_len_gt=512, device="cuda"):
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
@@ -1342,7 +1345,7 @@ def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, 
                                     (max_batch_size, max_seq_len), 
                                     device=device)
         dummy_gts = torch.randint(0, vocab_size, 
-                                    (max_batch_size, max_seq_len), 
+                                    (max_batch_size, max_seq_len_gt), 
                                     device=device)
         dummy_x_masks = torch.ones_like(dummy_inputs, device=device)
         dummy_gt_masks = torch.ones_like(dummy_gts, device=device)
@@ -1371,7 +1374,7 @@ def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, 
     return peak_mem
 
 
-def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_len=512, device="cuda"):
+def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_len=512, max_seq_len_gt=512, device="cuda"):
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
@@ -1384,7 +1387,7 @@ def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_l
                                     (max_batch_size, max_seq_len), 
                                     device=device)
         dummy_labels = torch.randint(0, vocab_size, 
-                                    (max_batch_size, max_seq_len), 
+                                    (max_batch_size, max_seq_len_gt), 
                                     device=device)
         dummy_x_masks = torch.ones_like(dummy_inputs, device=device)
 
