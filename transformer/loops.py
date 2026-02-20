@@ -33,10 +33,10 @@ MEM_COL_PATIENCE = 1
 # 메모리 pre-allocation
 PREALLOCATE_BATCH_SIZE = 32
 # PREALLOCATE_SEQ_SIZE = 160
-PREALLOCATE_SEQ_SIZE = 160
-# PREALLOCATE_SEQ_SIZE = 230 # @@@ 그냥 같은 값으로 두는게 메모리는 더 먹어도 더 빠름?
-# PREALLOCATE_SEQ_SIZE_GT = 230
-PREALLOCATE_SEQ_SIZE_GT = 160
+# PREALLOCATE_SEQ_SIZE = 160
+PREALLOCATE_SEQ_SIZE = 230 # @@@ 그냥 같은 값으로 두는게 메모리는 더 먹어도 더 빠름?
+PREALLOCATE_SEQ_SIZE_GT = 230
+# PREALLOCATE_SEQ_SIZE_GT = 160
 # train set input, label 최대길이
 # ==>> df['length'].max(): 157
 # ==>> df['length_label'].max(): 224
@@ -73,7 +73,10 @@ def train_loop(
     # step_precheck_after에서 사용가능하도록 partial 사용
     fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT, device=device)
 
-    fn_preallocate_memory()
+    print_result = fn_preallocate_memory()
+
+    for p in print_result:
+        print(p)
 
     epoch_loss = 0
     epoch_total_tokens = 0
@@ -123,7 +126,7 @@ def train_loop(
 
         optimizer.zero_grad()
 
-        precheck = step_precheck(
+        precheck, _ = step_precheck(
             step, 
             batch['input_ids'].numel(), 
             batch['decoder_inputs'].numel(),
@@ -133,6 +136,7 @@ def train_loop(
             batch['input_ids'].size(0),
             batch['decoder_inputs'].size(0)
         )
+
 
         if not precheck:
             # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
@@ -371,6 +375,9 @@ def train_loop(
 
             wandb.log(wandb_mem_dict)
 
+        if precheck:
+            del inputs, gts, labels, x_masks, gt_masks, out
+
         step_precheck_after(
             step,
             precheck,
@@ -383,6 +390,7 @@ def train_loop(
     epoch_mean_token_loss = epoch_loss / epoch_total_tokens if epoch_total_tokens != 0 else 0
 
     return epoch_loss, epoch_mean_batch_loss, epoch_mean_token_loss, epoch_total_tokens, epoch_total_tokens_input
+
 
 
 def val_loop(
@@ -474,6 +482,9 @@ def val_loop(
             #     wandb.log(wandb_val_step_dict)
 
             val_loss += loss_value
+
+            if precheck:
+                del inputs, gts, labels, x_masks, gt_masks, out
 
             step_precheck_after(
                 step,
@@ -614,6 +625,7 @@ def train_loop_with_mp(
         optimizer,
         scheduler,
         mp_scaler:torch.amp.GradScaler,
+        accum_steps,
         device,
         wandb_mode,
         train_start,
@@ -633,13 +645,22 @@ def train_loop_with_mp(
     # step_precheck_after에서 사용가능하도록 partial 사용
     fn_preallocate_memory = partial(preallocate_memory, model=model, vocab_size=loaders.len_vocab, criterion=criterion, optimizer=optimizer, max_batch_size=PREALLOCATE_BATCH_SIZE, max_seq_len=PREALLOCATE_SEQ_SIZE, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT, device=device)
 
-    fn_preallocate_memory()
+    print_result = fn_preallocate_memory()
+
+    for p in print_result:
+        print(p)
 
 
     epoch_loss = 0
     epoch_total_tokens = 0
 
     epoch_total_tokens_input = 0
+
+    # gradient accumulation 누적 배치 기준 log 값들
+    ef_batch_loss = 0
+    ef_batch_norm_loss = 0
+    ef_batch_total_tokens = 0
+    ef_batch_total_tokens_input = 0
 
 
     num_batches_train = len(loaders.loader_train)
@@ -659,14 +680,14 @@ def train_loop_with_mp(
     mem_r_outloss = 0.0
     mem_a_backword = 0.0
     mem_r_backword = 0.0
-    mem_a_gradcheck = 0.0
-    mem_r_gradcheck = 0.0
-    mem_a_log = 0.0
-    mem_r_log = 0.0
-    mem_a_stepupdate = 0.0
-    mem_r_stepupdate = 0.0
-    mem_a_log2 = 0.0
-    mem_r_log2 = 0.0
+    # mem_a_gradcheck = 0.0
+    # mem_r_gradcheck = 0.0
+    # mem_a_log = 0.0
+    # mem_r_log = 0.0
+    # mem_a_stepupdate = 0.0
+    # mem_r_stepupdate = 0.0
+    # mem_a_log2 = 0.0
+    # mem_r_log2 = 0.0
     mem_a_end = 0.0
     mem_r_end = 0.0
 
@@ -674,6 +695,8 @@ def train_loop_with_mp(
     force_gc = force_gc_gen()
     # force_gc 함수 생성
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+    optimizer.zero_grad()
 
     for step, batch in tqdm(
         enumerate(loaders.loader_train),
@@ -684,13 +707,13 @@ def train_loop_with_mp(
         if train_break:
             break
 
-        # if step == 900:
+        # if step == 10:
         #     break
 
-        optimizer.zero_grad()
+        # optimizer.zero_grad()
         
 
-        precheck = step_precheck(
+        precheck, _ = step_precheck(
             step, 
             batch['input_ids'].numel(), 
             batch['decoder_inputs'].numel(),
@@ -705,6 +728,10 @@ def train_loop_with_mp(
             # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
             precheck = force_gc()
 
+        # if precheck:
+        #     del inputs, gts, labels, x_masks, gt_masks, out
+        # @@@ 바로 전 스텝에서 del 한 경우 여기서 또 del 하면 에러 발생
+
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_start = torch.cuda.memory_allocated() / 1024**3
         mem_r_start = torch.cuda.memory_reserved() / 1024**3
@@ -714,6 +741,8 @@ def train_loop_with_mp(
         # print(f"==>> inputs.shape: {inputs.shape}")
         # (batch_size, src_seq_len)
 
+        # print(f"==>> inputs.numel(): {inputs.numel()}")
+
         # teacher forcing에 사용할 gts
         gts = batch['decoder_inputs'].to(device, non_blocking=True)
         # (batch_size, tgt_seq_len)
@@ -722,18 +751,27 @@ def train_loop_with_mp(
         labels = batch['labels'].to(device, non_blocking=True)
         # (batch_size, tgt_seq_len)
 
+        # print(f"==>> labels.numel(): {labels.numel()}")
+        
+
         # 이번 배치의 정답 토큰 총 개수
         # batch_ntokens = labels.numel()
         # b * tgt_seq_len
         # TODO: 패드 토큰 개수 빼야 하는지 확인 필요
         # @@@ annotated transformer는 self.ntokens = (self.tgt_y != pad).data.sum()로 패드 토큰 개수 제외함
         batch_ntokens = batch['ntokens']
+        # print(f"==>> batch_ntokens: {batch_ntokens}")
         # collate_fn에서 계산하는 방식
         # @@@ 단순히  batch['decoder_mask'].sum()해도 동일한 값이 나온다(실제 토큰부분 1, 패딩 부분 0으로 되어 있으므로)
+
+        ef_batch_total_tokens += batch_ntokens
 
         epoch_total_tokens += batch_ntokens
 
         batch_ntokens_input = batch['ntokens_input']
+        # print(f"==>> batch_ntokens_input: {batch_ntokens_input}")
+
+        ef_batch_total_tokens_input += batch_ntokens_input
 
         epoch_total_tokens_input += batch_ntokens_input
 
@@ -797,7 +835,10 @@ def train_loop_with_mp(
             #     print("".center(50, "-"))
             #     raise ValueError("NaN or inf detected in loss!")
 
-            normalized_loss = loss / batch_ntokens
+            # normalized_loss = loss / batch_ntokens
+            # @@@ gradient accumulation 사용 시에는 accum_steps 만큼 추가로 더 나누어져야 한다
+            # @@@ @@@ 미니 배치 토큰 평균 loss 들의 합 ~= accum_steps * effective 큰 배치 토큰 평균 loss
+            normalized_loss = loss / (batch_ntokens * accum_steps)
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         mem_a_outloss = torch.cuda.memory_allocated() / 1024**3
@@ -805,7 +846,9 @@ def train_loop_with_mp(
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         loss_value = loss.item()
+        ef_batch_loss += loss_value
         normalized_loss_value = normalized_loss.item()
+        ef_batch_norm_loss += normalized_loss_value
 
         mp_scaler.scale(normalized_loss).backward()
 
@@ -814,171 +857,184 @@ def train_loop_with_mp(
         mem_r_backword = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # @@@ 실제 grad 값을 로그하거나 그래디언트 클리핑을 진행하기 위해서는 scale 된 grad 값들을 scaling factor로 다시 나누어주어야 한다
-        mp_scaler.unscale_(optimizer)
-        # @@@ mp_scaler.step(optimizer)는 앞에 mp_scaler.unscale_(optimizer)이 없으면 
-        # @@@ 알아서 mp_scaler.unscale_(optimizer)를 내부에서 실행하지만 
-        # @@@ 앞에서 명시적으로 실행하면 파라메터 업데이트만 실행
-        # @@@ @@@ unscale_ 주석 확인
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        if (step + 1) % accum_steps == 0:
+
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # @@@ 실제 grad 값을 로그하거나 그래디언트 클리핑을 진행하기 위해서는 scale 된 grad 값들을 scaling factor로 다시 나누어주어야 한다
+            mp_scaler.unscale_(optimizer)
+            # @@@ mp_scaler.step(optimizer)는 앞에 mp_scaler.unscale_(optimizer)이 없으면 
+            # @@@ 알아서 mp_scaler.unscale_(optimizer)를 내부에서 실행하지만 
+            # @@@ 앞에서 명시적으로 실행하면 파라메터 업데이트만 실행
+            # @@@ @@@ unscale_ 주석 확인
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
-        # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
-        weight = model.src_embed[0].embed.weight
-        grad = weight.grad
-        grad_mean = grad.mean().item() if grad is not None else None
-        grad_max = grad.max().item() if grad is not None else None
-        norm = grad.norm().item() if grad is not None else None
+            # @@@ NaN이 발생하는 임베딩층의 파라메터와 grad 값 확인
+            weight = model.src_embed[0].embed.weight
+            grad = weight.grad
+            grad_mean = grad.mean().item() if grad is not None else None
+            grad_max = grad.max().item() if grad is not None else None
+            norm = grad.norm().item() if grad is not None else None
 
-        weight_tgt = model.tgt_embed[0].embed.weight
-        grad_tgt = weight_tgt.grad
-        grad_mean_tgt = grad_tgt.mean().item() if grad_tgt is not None else None
-        grad_max_tgt = grad_tgt.max().item() if grad_tgt is not None else None
-        norm_tgt = grad_tgt.norm().item() if grad_tgt is not None else None
+            weight_tgt = model.tgt_embed[0].embed.weight
+            grad_tgt = weight_tgt.grad
+            grad_mean_tgt = grad_tgt.mean().item() if grad_tgt is not None else None
+            grad_max_tgt = grad_tgt.max().item() if grad_tgt is not None else None
+            norm_tgt = grad_tgt.norm().item() if grad_tgt is not None else None
 
-        # 마지막 ffc 레이어도 확인
-        weight_ffc = model.ffc.weight
-        grad_ffc = weight_ffc.grad
-        grad_mean_ffc = grad_ffc.mean().item() if grad_ffc is not None else None
-        grad_max_ffc = grad_ffc.max().item() if grad_ffc is not None else None
-        norm_ffc = grad_ffc.norm().item() if grad_ffc is not None else None
-        if model.ffc.bias is not None:
-            bias_ffc = model.ffc.bias
-            grad_ffc_bias = bias_ffc.grad
-            grad_mean_ffc_bias = grad_ffc_bias.mean().item() if grad_ffc_bias is not None else None
-            grad_max_ffc_bias = grad_ffc_bias.max().item() if grad_ffc_bias is not None else None
-            norm_ffc_bias = grad_ffc_bias.norm().item() if grad_ffc_bias is not None else None
-        #     if math.isnan(grad_mean_ffc_bias) or math.isinf(grad_mean_ffc_bias):
-        #         grad_mean_ffc_bias = 0
-        #     if math.isnan(grad_max_ffc_bias) or math.isinf(grad_max_ffc_bias):
-        #         grad_max_ffc_bias = 0
-        #     if math.isnan(norm_ffc_bias) or math.isinf(norm_ffc_bias):
-        #         norm_ffc_bias = 0
-
-        # if math.isnan(grad_mean) or math.isinf(grad_mean):
-        #     grad_mean = 0
-        # if math.isnan(grad_max) or math.isinf(grad_max):
-        #     grad_max = 0
-        # if math.isnan(norm) or math.isinf(norm):
-        #     norm = 0
-        # if math.isnan(grad_mean_tgt) or math.isinf(grad_mean_tgt):
-        #     grad_mean_tgt = 0
-        # if math.isnan(grad_max_tgt) or math.isinf(grad_max_tgt):
-        #     grad_max_tgt = 0
-        # if math.isnan(norm_tgt) or math.isinf(norm_tgt):
-        #     norm_tgt = 0
-        # if math.isnan(grad_mean_ffc) or math.isinf(grad_mean_ffc):
-        #     grad_mean_ffc = 0
-        # if math.isnan(grad_max_ffc) or math.isinf(grad_max_ffc):
-        #     grad_max_ffc = 0
-        # if math.isnan(norm_ffc) or math.isinf(norm_ffc):
-        #     norm_ffc = 0
-
-
-        # 그래디언트 클리핑
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
-        # 임베딩 층 max_norm 값 변경
-        # torch.nn.utils.clip_grad_norm_(model.src_embed.parameters(), max_norm=max_norm*5)
-        # torch.nn.utils.clip_grad_norm_(model.encoder.parameters(), max_norm=max_norm)
-        # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
-
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
-        mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
-        if wandb_mode != "disabled":
-            wandb_step_dict = {
-                "step_total_loss": loss_value,
-                "step_token_loss": normalized_loss_value,
-                "learning_rate": scheduler.get_last_lr()[0],
-                "embed_weight_mean": weight.mean().item(),
-                "embed_weight_max": weight.max().item(),
-                "embed_grad_mean": grad_mean,
-                # "embed_grad_mean_clipped": grad.mean().item(),
-                "embed_grad_max": grad_max,
-                # "embed_grad_max_clipped": grad.max().item(),
-                "embed_grad_norm": norm,
-                # "embed_grad_norm_clipped": grad.norm().item(),
-                "tgt_embed_weight_mean": weight_tgt.mean().item(),
-                "tgt_embed_weight_max": weight_tgt.max().item(),
-                "tgt_embed_grad_mean": grad_mean_tgt,
-                "tgt_embed_grad_max": grad_max_tgt,
-                "tgt_embed_grad_norm": norm_tgt,
-                "ffc_weight_mean": weight_ffc.mean().item(),
-                "ffc_weight_max": weight_ffc.max().item(),
-                "ffc_weight_grad_mean": grad_mean_ffc,
-                "ffc_weight_grad_max": grad_max_ffc,
-                "ffc_weight_grad_norm": norm_ffc,
-            }
+            # 마지막 ffc 레이어도 확인
+            weight_ffc = model.ffc.weight
+            grad_ffc = weight_ffc.grad
+            grad_mean_ffc = grad_ffc.mean().item() if grad_ffc is not None else None
+            grad_max_ffc = grad_ffc.max().item() if grad_ffc is not None else None
+            norm_ffc = grad_ffc.norm().item() if grad_ffc is not None else None
             if model.ffc.bias is not None:
-                wandb_step_dict["ffc_bias_mean"] = bias_ffc.mean().item()
-                wandb_step_dict["ffc_bias_max"] = bias_ffc.max().item()
-                wandb_step_dict["ffc_bias_grad_mean"] = grad_mean_ffc_bias
-                wandb_step_dict["ffc_bias_grad_max"] = grad_max_ffc_bias
-                wandb_step_dict["ffc_bias_grad_norm"] = norm_ffc_bias
+                bias_ffc = model.ffc.bias
+                grad_ffc_bias = bias_ffc.grad
+                grad_mean_ffc_bias = grad_ffc_bias.mean().item() if grad_ffc_bias is not None else None
+                grad_max_ffc_bias = grad_ffc_bias.max().item() if grad_ffc_bias is not None else None
+                norm_ffc_bias = grad_ffc_bias.norm().item() if grad_ffc_bias is not None else None
+            #     if math.isnan(grad_mean_ffc_bias) or math.isinf(grad_mean_ffc_bias):
+            #         grad_mean_ffc_bias = 0
+            #     if math.isnan(grad_max_ffc_bias) or math.isinf(grad_max_ffc_bias):
+            #         grad_max_ffc_bias = 0
+            #     if math.isnan(norm_ffc_bias) or math.isinf(norm_ffc_bias):
+            #         norm_ffc_bias = 0
 
-            wandb.log(wandb_step_dict)
+            # if math.isnan(grad_mean) or math.isinf(grad_mean):
+            #     grad_mean = 0
+            # if math.isnan(grad_max) or math.isinf(grad_max):
+            #     grad_max = 0
+            # if math.isnan(norm) or math.isinf(norm):
+            #     norm = 0
+            # if math.isnan(grad_mean_tgt) or math.isinf(grad_mean_tgt):
+            #     grad_mean_tgt = 0
+            # if math.isnan(grad_max_tgt) or math.isinf(grad_max_tgt):
+            #     grad_max_tgt = 0
+            # if math.isnan(norm_tgt) or math.isinf(norm_tgt):
+            #     norm_tgt = 0
+            # if math.isnan(grad_mean_ffc) or math.isinf(grad_mean_ffc):
+            #     grad_mean_ffc = 0
+            # if math.isnan(grad_max_ffc) or math.isinf(grad_max_ffc):
+            #     grad_max_ffc = 0
+            # if math.isnan(norm_ffc) or math.isinf(norm_ffc):
+            #     norm_ffc = 0
+
+
+            # 그래디언트 클리핑
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            # 임베딩 층 max_norm 값 변경
+            # torch.nn.utils.clip_grad_norm_(model.src_embed.parameters(), max_norm=max_norm*5)
+            # torch.nn.utils.clip_grad_norm_(model.encoder.parameters(), max_norm=max_norm)
+            # torch.nn.utils.clip_grad_norm_(model.decoder.parameters(), max_norm=max_norm)
+
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # mem_a_gradcheck = torch.cuda.memory_allocated() / 1024**3
+            # mem_r_gradcheck = torch.cuda.memory_reserved() / 1024**3
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+            if wandb_mode != "disabled":
+                wandb_step_dict = {
+                    "ef_batch_total_loss": ef_batch_loss,
+                    "ef_batch_token_loss": ef_batch_norm_loss,
+                    "ef_batch_total_tokens": ef_batch_total_tokens,
+                    "ef_batch_total_tokens_input": ef_batch_total_tokens_input,
+                    "learning_rate": scheduler.get_last_lr()[0],
+                    "embed_weight_mean": weight.mean().item(),
+                    "embed_weight_max": weight.max().item(),
+                    "embed_grad_mean": grad_mean,
+                    # "embed_grad_mean_clipped": grad.mean().item(),
+                    "embed_grad_max": grad_max,
+                    # "embed_grad_max_clipped": grad.max().item(),
+                    "embed_grad_norm": norm,
+                    # "embed_grad_norm_clipped": grad.norm().item(),
+                    "tgt_embed_weight_mean": weight_tgt.mean().item(),
+                    "tgt_embed_weight_max": weight_tgt.max().item(),
+                    "tgt_embed_grad_mean": grad_mean_tgt,
+                    "tgt_embed_grad_max": grad_max_tgt,
+                    "tgt_embed_grad_norm": norm_tgt,
+                    "ffc_weight_mean": weight_ffc.mean().item(),
+                    "ffc_weight_max": weight_ffc.max().item(),
+                    "ffc_weight_grad_mean": grad_mean_ffc,
+                    "ffc_weight_grad_max": grad_max_ffc,
+                    "ffc_weight_grad_norm": norm_ffc,
+                }
+                if model.ffc.bias is not None:
+                    wandb_step_dict["ffc_bias_mean"] = bias_ffc.mean().item()
+                    wandb_step_dict["ffc_bias_max"] = bias_ffc.max().item()
+                    wandb_step_dict["ffc_bias_grad_mean"] = grad_mean_ffc_bias
+                    wandb_step_dict["ffc_bias_grad_max"] = grad_max_ffc_bias
+                    wandb_step_dict["ffc_bias_grad_norm"] = norm_ffc_bias
+
+                wandb.log(wandb_step_dict)
+
+
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # mem_a_log = torch.cuda.memory_allocated() / 1024**3
+            # mem_r_log = torch.cuda.memory_reserved() / 1024**3
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+            # optimizer.step()
+            # mp_scaler로 step을 하면 grad를 구할 때 mp_scaler.scale에서 곱해졌던 scaling factor를
+            # 다시 나눈 다음에 step을 진행해 fp32와 동일한 스케일의 그래디언트로 step이 이뤄지게 한다
+            mp_scaler.step(optimizer)
+            mp_scaler.update()
+            # @@@ mp_scaler.step(optimizer) 이후에 grad 값을 로그하면 
+            # @@@ 이때는 이미 weight가 업데이트됐기 때문에, step 이후의 grad는 보통 의미가 없음
+            # @@@ @@@ gradient clipping 타이밍은 이미 지나간 상태이고
+            # @@@ @@@ 대부분 옵티마이저에서 grad를 건드리기 떄문에 실제 grad 값을 로깅할 수 없음
+
+            
+
+            scheduler.step()
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # GradScaler.step(optimizer)는 scaling factor 조정 중인 초기에 gradient overflow가 발생하면 
+            # optimizer.step()을 건너뛸 수 있는데 그 때 scheduler.step()을 호출 하면
+            # scheduler.step()이 호출되지만 optimizer는 업데이트 안 된 상태라서
+            # UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. 
+            # In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  
+            # Failure to do this will result in PyTorch skipping the first value of the learning rate schedule.
+            # 라는 경고가 뜨게 된다
+            # @@@ 그러나 LambdaLR 같은 step-based scheduler는 첫 번째 값 스킵 문제가 없고, 총 step 수를 미리 지정했으므로 실제 성능 영향 거의 없음 ==> 무시해도 문제 없음
+            # 실제로 optimizer 업데이트 시에만 lr_scheduler.step()을 하려면 
+            # 
+            # @@@ prev_scale 초기화 부분 loss 계산 전에 추가
+            # prev_scale = mp_scaler.get_scale()
+            # with torch.amp.autocast(device_type=device):
+            # ...
+            # if mp_scaler.get_scale() >= prev_scale:  # 업데이트 성공이면 참
+            #     scheduler.step()
+            # 
+            # 로 코드를 변경
+            # @@@ mp_scaler는 업데이트를 성공하면 scale을 유지하거나 1~2배 사이 값으로 증가
+            # @@@ 업데이트를 실패하면 backoff_factor(보통 1/2) 만큼 곱해서 scale을 감소 시킨다
+            # @@@ mp_scaler.get_scale() >= prev_scale 조건은 scale이 유지됐거나 증가했다는 의미
+            # @@@ 따라서 업데이트 성공
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+            optimizer.zero_grad()
+
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            # mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
+            # mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
+            # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+            if wandb_mode != "disabled":
+                wandb.log({"mp_scaler_scale": mp_scaler.get_scale()})
+
+            # ef_batch 집계 끝나면 로그 값 초기화
+            ef_batch_loss = 0
+            ef_batch_norm_loss = 0
+            ef_batch_total_tokens = 0
+            ef_batch_total_tokens_input = 0
 
 
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        mem_a_log = torch.cuda.memory_allocated() / 1024**3
-        mem_r_log = torch.cuda.memory_reserved() / 1024**3
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
-        # optimizer.step()
-        # mp_scaler로 step을 하면 grad를 구할 때 mp_scaler.scale에서 곱해졌던 scaling factor를
-        # 다시 나눈 다음에 step을 진행해 fp32와 동일한 스케일의 그래디언트로 step이 이뤄지게 한다
-        mp_scaler.step(optimizer)
-        mp_scaler.update()
-        # @@@ mp_scaler.step(optimizer) 이후에 grad 값을 로그하면 
-        # @@@ 이때는 이미 weight가 업데이트됐기 때문에, step 이후의 grad는 보통 의미가 없음
-        # @@@ @@@ gradient clipping 타이밍은 이미 지나간 상태이고
-        # @@@ @@@ 대부분 옵티마이저에서 grad를 건드리기 떄문에 실제 grad 값을 로깅할 수 없음
-
-        scheduler.step()
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # GradScaler.step(optimizer)는 scaling factor 조정 중인 초기에 gradient overflow가 발생하면 
-        # optimizer.step()을 건너뛸 수 있는데 그 때 scheduler.step()을 호출 하면
-        # scheduler.step()이 호출되지만 optimizer는 업데이트 안 된 상태라서
-        # UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. 
-        # In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  
-        # Failure to do this will result in PyTorch skipping the first value of the learning rate schedule.
-        # 라는 경고가 뜨게 된다
-        # @@@ 그러나 LambdaLR 같은 step-based scheduler는 첫 번째 값 스킵 문제가 없고, 총 step 수를 미리 지정했으므로 실제 성능 영향 거의 없음 ==> 무시해도 문제 없음
-        # 실제로 optimizer 업데이트 시에만 lr_scheduler.step()을 하려면 
-        # 
-        # @@@ prev_scale 초기화 부분 loss 계산 전에 추가
-        # prev_scale = mp_scaler.get_scale()
-        # with torch.amp.autocast(device_type=device):
-        # ...
-        # if mp_scaler.get_scale() >= prev_scale:  # 업데이트 성공이면 참
-        #     scheduler.step()
-        # 
-        # 로 코드를 변경
-        # @@@ mp_scaler는 업데이트를 성공하면 scale을 유지하거나 1~2배 사이 값으로 증가
-        # @@@ 업데이트를 실패하면 backoff_factor(보통 1/2) 만큼 곱해서 scale을 감소 시킨다
-        # @@@ mp_scaler.get_scale() >= prev_scale 조건은 scale이 유지됐거나 증가했다는 의미
-        # @@@ 따라서 업데이트 성공
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        mem_a_stepupdate = torch.cuda.memory_allocated() / 1024**3
-        mem_r_stepupdate = torch.cuda.memory_reserved() / 1024**3
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
-        if wandb_mode != "disabled":
-            wandb.log({"mp_scaler_scale": mp_scaler.get_scale()})
-
-
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
-        mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
+        # mem_a_log2 = torch.cuda.memory_allocated() / 1024**3
+        # mem_r_log2 = torch.cuda.memory_reserved() / 1024**3
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -1014,21 +1070,28 @@ def train_loop_with_mp(
                 "mem_r_outloss" : mem_r_outloss,
                 "mem_a_backword" : mem_a_backword,
                 "mem_r_backword" : mem_r_backword,
-                "mem_a_gradcheck" : mem_a_gradcheck,
-                "mem_r_gradcheck" : mem_r_gradcheck,
-                "mem_a_log" : mem_a_log,
-                "mem_r_log" : mem_r_log,
-                "mem_a_stepupdate" : mem_a_stepupdate,
-                "mem_r_stepupdate" : mem_r_stepupdate,
-                "mem_a_log2" : mem_a_log2,
-                "mem_r_log2" : mem_r_log2,
+                # "mem_a_gradcheck" : mem_a_gradcheck,
+                # "mem_r_gradcheck" : mem_r_gradcheck,
+                # "mem_a_log" : mem_a_log,
+                # "mem_r_log" : mem_r_log,
+                # "mem_a_stepupdate" : mem_a_stepupdate,
+                # "mem_r_stepupdate" : mem_r_stepupdate,
+                # "mem_a_log2" : mem_a_log2,
+                # "mem_r_log2" : mem_r_log2,
                 "mem_a_end" : mem_a_end,
                 "mem_r_end" : mem_r_end,
+                "step_total_loss": loss_value,
+                "step_token_loss": (normalized_loss_value * accum_steps), 
+                # 현재 normalized_loss = loss / (batch_ntokens * accum_steps)이므로 
+                # accum_steps를 다시 곱해줘야 미니 배치당 토큰 평균 loss가 구해진다
                 "batch_ntokens_input": batch_ntokens_input, 
                 "batch_ntokens_label": batch_ntokens, 
             }
 
             wandb.log(wandb_mem_dict)
+
+        if precheck:
+            del inputs, gts, labels, x_masks, gt_masks, out
 
         step_precheck_after(
             step,
@@ -1159,6 +1222,9 @@ def val_loop_with_mp(
             #     wandb.log(wandb_val_step_dict)
 
             val_loss += loss_value
+
+            if precheck:
+                del inputs, gts, labels, x_masks, gt_masks, out
 
             step_precheck_after(
                 step,
@@ -1302,7 +1368,10 @@ def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=3
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
-    print("Preallocating memory...")
+    result = []
+
+    # print("Preallocating memory...")
+    result.append("Preallocating memory...")
     
     # 최대 크기 더미 입력 생성
     dummy_inputs = torch.randint(0, vocab_size, 
@@ -1332,25 +1401,33 @@ def preallocate_memory(model, vocab_size, criterion, optimizer, max_batch_size=3
     
     # 피크 메모리 기록
     peak_mem = torch.cuda.max_memory_allocated() / 1024**3
-    print("Preallocation complete")
-    print(f"Peak memory: {peak_mem:.1f}GB")
-    print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    # print("Preallocation complete")
+    # print(f"Peak memory: {peak_mem:.1f}GB")
+    # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    result.append("Preallocation complete")
+    result.append(f"Peak memory: {peak_mem:.1f}GB")
+    result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
 
     mem_dict = get_gpu_mem()
-    print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    # print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    result.append(f"GPU Used: {mem_dict["used_gb"]:.2f}")
     
     # 피크 리셋 (실제 훈련 시작)
     torch.cuda.reset_peak_memory_stats()
     # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
     # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
-    return peak_mem
+    # return peak_mem
+    return result
 
 
 def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, max_seq_len=512, max_seq_len_gt=512, device="cuda"):
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
-    print("Preallocating no grad memory...")
+    result = []
+
+    # print("Preallocating no grad memory...")
+    result.append("Preallocating no grad memory...")
 
     with torch.no_grad():
         
@@ -1374,25 +1451,33 @@ def preallocate_memory_no_grad(model, vocab_size, criterion, max_batch_size=32, 
     
     # 피크 메모리 기록
     peak_mem = torch.cuda.max_memory_allocated() / 1024**3
-    print("No grad preallocation complete.")
-    print(f"Peak memory: {peak_mem:.1f}GB")
-    print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    # print("No grad preallocation complete.")
+    # print(f"Peak memory: {peak_mem:.1f}GB")
+    # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    result.append("No grad preallocation complete.")
+    result.append(f"Peak memory: {peak_mem:.1f}GB")
+    result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
 
     mem_dict = get_gpu_mem()
-    print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    # print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    result.append(f"GPU Used: {mem_dict["used_gb"]:.2f}")
     
     # 피크 리셋 (실제 훈련 시작)
     torch.cuda.reset_peak_memory_stats()
     # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
     # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
-    return peak_mem
+    # return peak_mem
+    return result
 
 
 def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_len=512, max_seq_len_gt=512, device="cuda"):
     """
     최대 크기 dummy batch로 메모리 미리 할당
     """
-    print("Preallocating inference memory...")
+    result = []
+
+    # print("Preallocating inference memory...")
+    result.append("Preallocating inference memory...")
 
     with torch.no_grad():
     
@@ -1415,18 +1500,23 @@ def preallocate_memory_inference(model, vocab_size, max_batch_size=32, max_seq_l
     
     # 피크 메모리 기록
     peak_mem = torch.cuda.max_memory_allocated() / 1024**3
-    print("Inference preallocation complete.")
-    print(f"Peak memory: {peak_mem:.1f}GB")
-    print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    # print("Inference preallocation complete.")
+    # print(f"Peak memory: {peak_mem:.1f}GB")
+    # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+    result.append("Inference preallocation complete.")
+    result.append(f"Peak memory: {peak_mem:.1f}GB")
+    result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
 
     mem_dict = get_gpu_mem()
-    print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    # print(f"GPU Used: {mem_dict["used_gb"]:.2f}")
+    result.append(f"GPU Used: {mem_dict["used_gb"]:.2f}")
     
     # 피크 리셋 (실제 훈련 시작)
     torch.cuda.reset_peak_memory_stats()
     # @@@ 리셋을 하지 않으면 실제 학습 루프의 피크가 아니라 더미 배치로 설정된 피크값이 메모리 통계에 사용되므로 리셋
     # @@@ @@@ pytorch는 torch.cuda.memory_allocated(), torch.cuda.max_memory_allocated(), torch.cuda.memory_reserved(), torch.cuda.max_memory_reserved() 4가지 값 기록
-    return peak_mem
+    # return peak_mem
+    return result
 
 # pynvml로 실제 메모리 사용량 확인하는 함수
 def get_gpu_mem(device_index: int = 0):
@@ -1463,35 +1553,73 @@ def force_gc_gen():
 # 현재 step에 할당해야할 텐서가 preallocation 크기보다 커지면 메모리 정리하는 함수
 def step_precheck(step, input_numel, gt_numel, pre_batch_size, pre_seq_size, pre_seq_size_gt, step_batch_size, step_label_batch_size):
     if input_numel + gt_numel > (pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt) :
-        print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt}, cleaning...")
-        print(f"input_batch_size {step_batch_size} label_batch_size {step_label_batch_size}")
-        print(f"Memory before cleanup")
-        print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
-        print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        result = []
+
+        # print(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt}, cleaning...")
+        # print(f"input_batch_size {step_batch_size} label_batch_size {step_label_batch_size}")
+        # print(f"Memory before cleanup")
+        # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        # print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        result.append(f"Step {step}: input {input_numel} + gt numels {gt_numel} = {input_numel + gt_numel} > pre-allocate numel {pre_batch_size * pre_seq_size + pre_batch_size * pre_seq_size_gt}, cleaning...")
+        result.append(f"input_batch_size {step_batch_size} label_batch_size {step_label_batch_size}")
+        result.append(f"Memory before cleanup")
+        result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        result.append(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-        print(f"After cleanup")
-        print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
-        print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        # print(f"After cleanup")
+        # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        # print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        result.append(f"After cleanup")
+        result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        result.append(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        return True
+        return True, result
     
-    return False
+    return False, []
 
 # step_precheck가 실행된 step 종료 후 다시 설정된 값으로 memory preallocation 실행하는 함수
 def step_precheck_after(step, precheck, fn_preallocate):
     if precheck:
-        print(f"Step {step} finished:")
+        result = []
+
+        # print(f"Step {step} finished:")
+        result.append(f"Step {step} finished:")
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
         fn_preallocate()
 
-        print(f"After preallocation")
-        print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
-        print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        # print(f"After preallocation")
+        # print(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        # print(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        result.append(f"After preallocation")
+        result.append(f"Reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        result.append(f"Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        
+        return result
+
+    return []
+
+
+# reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행하는 함수 생성기
+def force_gc_mpa_gen(fn_preallocate):
+    mem_threshold_touch_count = 0
+    def force_gc():
+        nonlocal mem_threshold_touch_count, fn_preallocate
+        current_memory_gb = torch.cuda.memory_reserved() / 1024**3
+        if current_memory_gb > MEM_THRESHOLD:
+            mem_threshold_touch_count += 1
+            if mem_threshold_touch_count >= MEM_COL_PATIENCE:
+                gc.collect()
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+
+                fn_preallocate()
+
+                mem_threshold_touch_count = 0
+
+    return force_gc        

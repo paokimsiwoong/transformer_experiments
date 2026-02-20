@@ -35,13 +35,14 @@ class Encoder(nn.Module):
         out = Q
 
         for m in self.blocks:
-            # out = m(out, mask, testing)
+            out = m(out, mask, testing)
 
-            if testing:
-            # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
-                out = m(out, mask, testing)
-            else:
-                out = cp.checkpoint(m, out, mask, testing, use_reentrant=False)
+            # gradient checkpointing
+            # if testing:
+            # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+            #     out = m(out, mask, testing)
+            # else:
+            #     out = cp.checkpoint(m, out, mask, testing, use_reentrant=False)
 
         return out
 
@@ -71,13 +72,14 @@ class Decoder(nn.Module):
         out = Q
 
         for m in self.blocks:
-            # out = m(out, K, V, tgt_mask, src_mask, testing)
+            out = m(out, K, V, tgt_mask, src_mask, testing)
 
-            if testing:
-            # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
-                out = m(out, K, V, tgt_mask, src_mask, testing)
-            else:
-                out = cp.checkpoint(m, out, K, V, tgt_mask, src_mask, testing, use_reentrant=False)
+            # gradient checkpointing
+            # if testing:
+            # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+            #     out = m(out, K, V, tgt_mask, src_mask, testing)
+            # else:
+            #     out = cp.checkpoint(m, out, K, V, tgt_mask, src_mask, testing, use_reentrant=False)
 
         return out
 

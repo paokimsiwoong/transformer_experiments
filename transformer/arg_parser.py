@@ -122,6 +122,9 @@ def parse_args():
     # https://stackoverflow.com/questions/60999816/argparse-not-parsing-boolean-arguments
     # mixed precision 사용할 지 여부
 
+    parser.add_argument("--accum_steps", type=int, default=1)
+    # gradient accumulation 사용 여부 (1이면 미사용, >1 이면 사용)
+
     # parser.add_argument("--wandb_mode", type=str, default="online")
     # parser.add_argument("--wandb_mode", type=str, default="offline")
     parser.add_argument("--wandb_mode", type=str, default="disabled")
