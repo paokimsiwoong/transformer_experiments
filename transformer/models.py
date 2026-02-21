@@ -21,7 +21,7 @@ import torch.utils.checkpoint as cp
 
 
 class Encoder(nn.Module):
-    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate, visualization=False):
+    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate, visualization=False, gc=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
@@ -31,24 +31,26 @@ class Encoder(nn.Module):
             ]
         )
 
+        self.gc = gc
+
     def forward(self, Q, mask, testing=False):
         out = Q
 
-        for m in self.blocks:
-            out = m(out, mask, testing)
+        if self.gc and self.training:
+        # gradient checkpointing
+        # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+            for m in self.blocks:
+                out = cp.checkpoint(m, out, mask, testing, use_reentrant=False)
+        else:
+            for m in self.blocks:
+                out = m(out, mask, testing)
 
-            # gradient checkpointing
-            # if testing:
-            # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
-            #     out = m(out, mask, testing)
-            # else:
-            #     out = cp.checkpoint(m, out, mask, testing, use_reentrant=False)
 
         return out
 
 
 class Decoder(nn.Module):
-    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate, visualization=False):
+    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate, visualization=False, gc=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
@@ -59,6 +61,8 @@ class Decoder(nn.Module):
                 for i in range(block_num)
             ]
         )
+
+        self.gc = gc
 
     def forward(
         self,
@@ -71,15 +75,15 @@ class Decoder(nn.Module):
     ):
         out = Q
 
-        for m in self.blocks:
-            out = m(out, K, V, tgt_mask, src_mask, testing)
+        if self.gc and self.training:
+        # gradient checkpointing
+        # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
+            for m in self.blocks:
+                out = cp.checkpoint(m, out, K, V, tgt_mask, src_mask, testing, use_reentrant=False)
+        else:
+            for m in self.blocks:
+                out = m(out, K, V, tgt_mask, src_mask, testing)
 
-            # gradient checkpointing
-            # if testing:
-            # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
-            #     out = m(out, K, V, tgt_mask, src_mask, testing)
-            # else:
-            #     out = cp.checkpoint(m, out, K, V, tgt_mask, src_mask, testing, use_reentrant=False)
 
         return out
 
@@ -120,6 +124,7 @@ class Transformer(nn.Module):
         # decouple_embed_ffc=False,
         # decouple_ffc_tgt_embed=False,
         visualization=False,
+        gc=False,
         weight_tying: WeightTying = WeightTying.NOTYING,
     ):
         super().__init__()
@@ -142,7 +147,7 @@ class Transformer(nn.Module):
 
 
         self.encoder = Encoder(
-            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate, visualization=visualization
+            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate, visualization=visualization, gc=gc
         )
         self.decoder = Decoder(
             q_dim=q_dim,
@@ -153,6 +158,7 @@ class Transformer(nn.Module):
             block_num=de_block_num,
             drop_rate=drop_rate,
             visualization=visualization,
+            gc=gc,
         )
 
         
