@@ -406,7 +406,10 @@ def val_loop(
 
     # step_precheck_after에서 사용가능하도록 partial 사용
     fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_VAL, device=device)
-    fn_preallocate_memory_no_grad()
+    print_result = fn_preallocate_memory_no_grad()
+    
+    for p in print_result:
+        print(p)
 
     with torch.no_grad():
         val_loss = 0
@@ -416,7 +419,7 @@ def val_loop(
 
         num_batches_val = len(loaders.loader_val)
 
-        # force_gc = force_gc_gen()
+        force_gc = force_gc_gen()
         # force_gc 함수 생성
 
         for step, batch_val in tqdm(
@@ -425,10 +428,8 @@ def val_loop(
             if val_break:
                 break
 
-            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-            # force_gc()
 
-            precheck = step_precheck(
+            precheck, _ = step_precheck(
                 step, 
                 batch_val['input_ids'].numel(), 
                 batch_val['decoder_inputs'].numel(),
@@ -438,6 +439,10 @@ def val_loop(
                 batch_val['input_ids'].size(0),
                 batch_val['decoder_inputs'].size(0)
             )
+
+            if not precheck:
+                # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+                precheck = force_gc()
 
             inputs = batch_val['input_ids'].to(device, non_blocking=True)
             # (batch_size, src_seq_len)
@@ -484,7 +489,7 @@ def val_loop(
             val_loss += loss_value
 
             if precheck:
-                del inputs, gts, labels, x_masks, gt_masks, out
+                del inputs, gts, labels, x_masks, gt_masks, out, loss
 
             step_precheck_after(
                 step,
@@ -518,7 +523,11 @@ def test_loop(
 
     # step_precheck_after에서 사용가능하도록 partial 사용
     # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_TEST, device=device)
-    # fn_preallocate_memory_inference()
+    
+    # print_result = fn_preallocate_memory_inference()
+
+    # for p in print_result:
+    #     print(p)
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 루프 중간에 print를 하면 cpu가 gpu에 sync 요청을 해 속도가 느려진다
@@ -543,8 +552,6 @@ def test_loop(
             if test_break and step == 2:
                 break
 
-            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-            force_gc()
 
             # precheck = step_precheck(
             #     step, 
@@ -556,6 +563,12 @@ def test_loop(
             #     batch_test['input_ids'].size(0),
             #     batch_test['decoder_inputs'].size(0)
             # )   
+
+            # if not precheck:
+            #     # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+            #     precheck = force_gc()
+
+            force_gc()
 
             inputs = batch_test['input_ids'].to(device, non_blocking=True)
             # (batch_size, src_seq_len)
@@ -597,6 +610,9 @@ def test_loop(
 
             loaders.add_batch_to_metrics(preds, labels)
             loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
+
+            # if precheck:
+            #     del inputs, labels, x_masks, preds
 
             # step_precheck_after(
             #     step,
@@ -1091,7 +1107,7 @@ def train_loop_with_mp(
             wandb.log(wandb_mem_dict)
 
         if precheck:
-            del inputs, gts, labels, x_masks, gt_masks, out
+            del inputs, gts, labels, x_masks, gt_masks, out, loss, normalized_loss
 
         step_precheck_after(
             step,
@@ -1130,7 +1146,11 @@ def val_loop_with_mp(
     # preallocate_memory_no_grad(model, loaders.len_vocab, criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, device=device)
     # step_precheck_after에서 사용가능하도록 partial 사용
     fn_preallocate_memory_no_grad = partial(preallocate_memory_no_grad, model=model, vocab_size=loaders.len_vocab, criterion=criterion, max_batch_size=PREALLOCATE_BATCH_SIZE_VAL, max_seq_len=PREALLOCATE_SEQ_SIZE_VAL, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_VAL, device=device)
-    fn_preallocate_memory_no_grad()
+    
+    print_result = fn_preallocate_memory_no_grad()
+
+    for p in print_result:
+        print(p)
 
     with torch.no_grad():
 
@@ -1142,7 +1162,7 @@ def val_loop_with_mp(
         num_batches_val = len(loaders.loader_val)
 
         # mem_threshold_touch_count = 0
-        # force_gc = force_gc_gen()
+        force_gc = force_gc_gen()
         # force_gc 함수 생성
 
         for step, batch_val in tqdm(
@@ -1151,10 +1171,8 @@ def val_loop_with_mp(
             if val_break:
                 break
 
-            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-            # force_gc()
 
-            precheck = step_precheck(
+            precheck, _ = step_precheck(
                 step, 
                 batch_val['input_ids'].numel(), 
                 batch_val['decoder_inputs'].numel(),
@@ -1164,6 +1182,10 @@ def val_loop_with_mp(
                 batch_val['input_ids'].size(0),
                 batch_val['decoder_inputs'].size(0)
             )
+            
+            if not precheck:
+                # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+                precheck = force_gc()
 
             inputs = batch_val['input_ids'].to(device, non_blocking=True)
             # (batch_size, src_seq_len)
@@ -1224,7 +1246,7 @@ def val_loop_with_mp(
             val_loss += loss_value
 
             if precheck:
-                del inputs, gts, labels, x_masks, gt_masks, out
+                del inputs, gts, labels, x_masks, gt_masks, out, loss
 
             step_precheck_after(
                 step,
@@ -1260,7 +1282,11 @@ def test_loop_with_mp(
     # preallocate_memory_inference(model, loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, device=device)
     # step_precheck_after에서 사용가능하도록 partial 사용
     # fn_preallocate_memory_inference = partial(preallocate_memory_inference, model=model, vocab_size=loaders.len_vocab, max_batch_size=PREALLOCATE_BATCH_SIZE_TEST, max_seq_len=PREALLOCATE_SEQ_SIZE_TEST, max_seq_len_gt=PREALLOCATE_SEQ_SIZE_GT_TEST, device=device)
-    # fn_preallocate_memory_inference()
+    
+    # print_result = fn_preallocate_memory_inference()
+
+    # for p in print_result:
+    #     print(p)
 
     # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     # 루프 중간에 print를 하면 cpu가 gpu에 sync 요청을 해 속도가 느려진다
@@ -1286,10 +1312,8 @@ def test_loop_with_mp(
             if test_break and step == 2:
                 break
             
-            # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
-            force_gc()
 
-            # precheck = step_precheck(
+            # precheck, _ = step_precheck(
             #     step, 
             #     batch_test['input_ids'].numel(), 
             #     batch_test['decoder_inputs'].numel(),
@@ -1298,7 +1322,13 @@ def test_loop_with_mp(
             #     PREALLOCATE_SEQ_SIZE_GT_TEST,
             #     batch_test['input_ids'].size(0),
             #     batch_test['decoder_inputs'].size(0)
-            # )      
+            # )
+
+            # if not precheck: 
+            #     # reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행
+            #     precheck = force_gc()
+
+            force_gc()
 
             inputs = batch_test['input_ids'].to(device, non_blocking=True)
             # (batch_size, src_seq_len)
@@ -1341,6 +1371,9 @@ def test_loop_with_mp(
 
             loaders.add_batch_to_metrics(preds, labels)
             loaders.add_batch_to_metrics_per_cat(preds, labels, batch_test['cat'])
+
+            # if precheck:
+            #     del inputs, labels, x_masks, preds
 
             # step_precheck_after(
             #     step,
@@ -1605,7 +1638,7 @@ def step_precheck_after(step, precheck, fn_preallocate):
     return []
 
 
-# reserved 메모리가 MEM_THRESHOLD를 넘으면 gc 실행하는 함수 생성기
+# reserved 메모리가 MEM_THRESHOLD를 넘으면 gc, memory allocation 실행하는 함수 생성기
 def force_gc_mpa_gen(fn_preallocate):
     mem_threshold_touch_count = 0
     def force_gc():
