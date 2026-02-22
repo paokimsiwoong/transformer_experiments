@@ -40,7 +40,7 @@ def parse_args():
     # attention visualization 여부
     parser.add_argument('--viz', action='store_true', default=False, help='enable visualization mode')
     # gradient checkpointing 여부
-    parser.add_argument('--gc', action='store_true', default=False, help='enable gradient checkpointing')
+    parser.add_argument('--grad_cp', action='store_true', default=False, help='enable gradient checkpointing')
     # debug 여부
     parser.add_argument('--debug', action='store_true', default=False, help='enable debug mode')
 

@@ -21,7 +21,7 @@ import torch.utils.checkpoint as cp
 
 
 class Encoder(nn.Module):
-    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate, visualization=False, gc=False):
+    def __init__(self, q_dim, h_dim, head_num, block_num, drop_rate, visualization=False, grad_cp=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
@@ -31,12 +31,12 @@ class Encoder(nn.Module):
             ]
         )
 
-        self.gc = gc
+        self.grad_cp = grad_cp
 
     def forward(self, Q, mask, testing=False):
         out = Q
 
-        if self.gc and self.training:
+        if self.grad_cp and self.training:
         # gradient checkpointing
         # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
             for m in self.blocks:
@@ -50,7 +50,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate, visualization=False, gc=False):
+    def __init__(self, q_dim, k_dim, v_dim, h_dim, head_num, block_num, drop_rate, visualization=False, grad_cp=False):
         super().__init__()
 
         self.blocks = nn.ModuleList(
@@ -62,7 +62,7 @@ class Decoder(nn.Module):
             ]
         )
 
-        self.gc = gc
+        self.grad_cp = grad_cp
 
     def forward(
         self,
@@ -75,7 +75,7 @@ class Decoder(nn.Module):
     ):
         out = Q
 
-        if self.gc and self.training:
+        if self.grad_cp and self.training:
         # gradient checkpointing
         # # eval 단계에는 checkpoint 사용하지 않는게 더 좋음
             for m in self.blocks:
@@ -124,7 +124,7 @@ class Transformer(nn.Module):
         # decouple_embed_ffc=False,
         # decouple_ffc_tgt_embed=False,
         visualization=False,
-        gc=False,
+        grad_cp=False,
         weight_tying: WeightTying = WeightTying.NOTYING,
     ):
         super().__init__()
@@ -147,7 +147,7 @@ class Transformer(nn.Module):
 
 
         self.encoder = Encoder(
-            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate, visualization=visualization, gc=gc
+            q_dim=q_dim, h_dim=h_dim, head_num=head_num, block_num=en_block_num, drop_rate=drop_rate, visualization=visualization, grad_cp=grad_cp
         )
         self.decoder = Decoder(
             q_dim=q_dim,
@@ -158,7 +158,7 @@ class Transformer(nn.Module):
             block_num=de_block_num,
             drop_rate=drop_rate,
             visualization=visualization,
-            gc=gc,
+            grad_cp=grad_cp,
         )
 
         
