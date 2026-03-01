@@ -396,7 +396,8 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     new_batch['labels'] = [torch.LongTensor(label) for label in new_batch['labels']]
     new_batch['attention_mask'] = [torch.LongTensor(mask) for mask in new_batch['attention_mask']]
 
-    new_batch['ntokens'] = sum([l.numel() for l in new_batch['labels']])
+    # new_batch['ntokens'] = sum([l.numel() for l in new_batch['labels']])
+    new_batch['ntokens'] = sum(new_batch['length_label'])
 
     new_batch['ntokens_input'] = sum(new_batch['length'])
 

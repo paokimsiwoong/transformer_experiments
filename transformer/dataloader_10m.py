@@ -22,53 +22,96 @@ from collections import defaultdict
 class Loaders():
     def __init__(
             self,
-            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data.csv",
+            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data_10m.csv",
+            test_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data_test.csv",
             max_token_length = 512,
+            target_tokens = None,
             batch_size_train = 8,
             num_workers = 4,
             batch_size_val = 4,
             batch_size_test = 4,
             val_num_workers = 4,
-            start_idx = 64100, 
-            end_idx = 1, 
-            padding_idx = 0, 
-            unk_idx = 2,
+            # start_idx = 64100, 
+            # end_idx = 1, 
+            # padding_idx = 0, 
+            # unk_idx = 2,
+            tokenizer = "KETI-AIR/ke-t5-base",
             seed = 42,
     ):
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.padding_idx = padding_idx
-        self.unk_idx = unk_idx
-
         # 1) 데이터셋 로드
-        dataset = load_from_disk(data_path)['train']
+        dataset = load_dataset("csv", data_files=data_path)['train']
+        # Huggingface AI hub 번역 데이터셋 10개 모음
+        # https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m 
+        # kor, en, style, cat 4개의 칼럼으로 구성
+        # style
+        # # 문어체    6522489
+        # # 구어체    2913310
+        # # 혼재     1260217
+        # cat
+        # # 과학/기술/학술자료(0), 일상/대화(1), 뉴스/시사(2), 문화/예술/역사(3), 법률/행정(4), 의학/보건(5), 특허(6), 금융/경제(7)
+        # # 0    3551719
+        # # 1    2913310
+        # # 3    1260217
+        # # 2    1181603
+        # # 5     653544
+        # # 4     621916
+        # # 6     358307
+        # # 7     155400
+        # data_10m.csv와 data_10m_test.csv(기존 데이터셋과 완전히 동일한 test셋은 data_test.csv) 사용으로 변경해야함
+        
+        # 1-2) test 셋 로드
+        testset = load_dataset("csv", data_files=test_path)['train']
+        # 테스트셋은 기존의 AI hub 한국어-영어 번역(병렬) 말뭉치 데이터셋의 test 셋 부분을 그대로 사용
+        # # Huggingface 데이터셋에서 이 테스트셋과 중복되는 부분은 사전에 제거한 상태
+        # testset의 cat은 dataset의 cat과 분류과 다르게 되어 있다
+        # testset 'cat' 열
+        # 0: 구어체 8000
+        # 1: 대화체 2000
+        # 2: 문어체_뉴스 16028
+        # 3: 문어체_한국문화 2013
+        # 4: 문어체_조례 2006
+        # 5: 문어체_지자체웹사이트 2002
+
+        # 2) 카테고리 컬럼의 고유 클래스 찾아서 ClassLabel 객체 생성
+        unique_classes = dataset.unique('cat')  
+        unique_classes.sort()
+        print(f"==>> unique_classes: {unique_classes}")
+
+        class_label = ClassLabel(names=unique_classes)
+
+        # 3) 기존 컬럼 타입 변경 (캐스팅)
+        dataset = dataset.cast_column('cat', class_label)
 
         # 4) stratify_by_column으로 분할
-        # train_validtest = dataset.train_test_split(test_size=0.2, seed=seed, stratify_by_column='cat')
-        # valid_test = train_validtest['test'].train_test_split(test_size=0.1, seed=seed, stratify_by_column='cat')
-        train_validtest = dataset.train_test_split(test_size=0.2, seed=seed, stratify_by_column='style_class')
-        valid_test = train_validtest['test'].train_test_split(test_size=0.1, seed=seed, stratify_by_column='style_class')
+        train_valid = dataset.train_test_split(test_size=0.2, seed=seed, stratify_by_column='cat')
 
         dataset_dict = DatasetDict({
-            'train': train_validtest['train'],
-            'validation': valid_test['train'],
-            'test': valid_test['test']
+            'train': train_valid['train'],
+            'validation': train_valid['test'],
         })
+
+        # testset은 미리 정해진 것을 가져와서 쓰므로 train_test_split은 한번만
+        testset_dict = DatasetDict({
+            'test': testset,
+        })
+
+        
 
         # print(dataset_dict)
 
         NUM_CPU = multiprocessing.cpu_count()
         # print(f"==>> NUM_CPU: {NUM_CPU}")
 
-        # self.tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-ko-en")
-        # @@@ 점포, 만료 등의 단어가 <unk>인 문제 발견 => 다른 토크나이저 사용?
-        self.tokenizer = AutoTokenizer.from_pretrained("KETI-AIR/ke-t5-base")
+        self.tokenizer = None
+        self.len_vocab = None
+        self.start_idx = None
+        self.end_idx = None
+        self.padding_idx = None
+        self.unk_idx = None
 
-        special_tokens_dict = {'bos_token': '<s>'}
-        self.tokenizer.add_special_tokens(special_tokens_dict)
+        self.init_tokenizer(tokenizer)
 
-        print(self.tokenizer.all_special_ids)
-        print(self.tokenizer.all_special_tokens)
+        print(f"==>> self.tokenizer name: {tokenizer}")
 
         print(f"==>> self.tokenizer.model_max_length: {self.tokenizer.model_max_length}")
 
@@ -91,18 +134,185 @@ class Loaders():
                                 # remove_columns=dataset_dict["train"].column_names,
                                 num_proc=NUM_CPU)
 
+        self.testsets = testset_dict.map(
+            cetf,
+            batched=True,
+            num_proc=NUM_CPU
+        )
+
+        def add_length(batch):
+            batch["length"] = [len(inp) for inp in batch["input_ids"]] 
+            # @@@ map함수에 batched=True여야함
+            # @@@ False이면 batch["length"] = len(batch["input_ids"])
+            batch["length_label"] = [len(label) for label in batch["labels"]] 
+            return batch
+        
+        self.datasets = self.datasets.map(add_length, batched=True, num_proc=NUM_CPU)
+        self.testsets = self.testsets.map(add_length, batched=True, num_proc=NUM_CPU)
+
         print(f"==>> self.datasets: {self.datasets}")
+        print(f"==>> self.testsets: {self.testsets}")
+
+        self.target_tokens = target_tokens
+        # loops.py에서 각 에폭 시작 시점에 self.target_tokens 확인 후 
+        # None이 아니면 self.sampler의 set_epoch_indices 메소드 실행
+
+        self.batch_size_train = batch_size_train
+        self.batch_size_val = batch_size_val
+        self.batch_size_test = batch_size_test
+
+        if target_tokens is not None:
+            self.sampler = TokenPadBatchSampler(
+                self.datasets["train"], 
+                target_tokens=target_tokens,
+                max_batch_samples=batch_size_train,
+            )
 
         self.train_set = self.datasets['train']
         self.val_set = self.datasets['validation']
-        self.test_set = self.datasets['test']
+        self.test_set = self.testsets['test']
 
         c_fn = partial(collate_fn, start_idx=self.start_idx, end_idx=self.end_idx, padding_idx=self.padding_idx, unk_idx=self.unk_idx)
+        c_fn_test = partial(collate_fn_test, start_idx=self.start_idx, end_idx=self.end_idx, padding_idx=self.padding_idx, unk_idx=self.unk_idx)
 
-        self.loader_train = DataLoader(self.train_set, batch_size=batch_size_train, collate_fn=c_fn, shuffle=True, num_workers=num_workers, pin_memory=True)
+        if target_tokens is None:
+            self.loader_train = DataLoader(self.train_set, batch_size=batch_size_train, collate_fn=c_fn, shuffle=True, num_workers=num_workers, pin_memory=True)
+        else:
+            # @@@ 배치 별 총 토큰 수 일정하게 유지하기 위해 batch_size 대신 batch_sampler 사용
+            self.loader_train = DataLoader(self.train_set, batch_sampler=self.sampler, collate_fn=c_fn, shuffle=False, num_workers=num_workers, pin_memory=True)
         # 학습시에만 shuffle=True
         self.loader_val = DataLoader(self.val_set, batch_size=batch_size_val, collate_fn=c_fn, shuffle=False, num_workers=val_num_workers, pin_memory=True)
-        self.loader_test = DataLoader(self.test_set, batch_size=batch_size_test, collate_fn=c_fn, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+        self.loader_test = DataLoader(self.test_set, batch_size=batch_size_test, collate_fn=c_fn_test, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+
+        # 테스트 루프에 쓰일 메트릭 초기화
+        self.metric_bleu = evaluate.load("sacrebleu")
+        self.metric_chrf = evaluate.load("chrf")
+        self.metric_meteor = evaluate.load("meteor")
+
+        self.metric_bleu_per_cat = []
+        self.metric_chrf_per_cat = []
+        self.metric_meteor_per_cat = []
+
+    def init_tokenizer(self, tokenizer):
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
+        match tokenizer:
+            case "KETI-AIR/ke-t5-base":
+                special_tokens_dict = {'bos_token': '<s>'}
+                self.tokenizer.add_special_tokens(special_tokens_dict)
+
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 64100
+                self.end_idx = 1
+                self.padding_idx = 0
+                self.unk_idx = 2
+            case "Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b":
+                special_tokens_dict = {'pad_token': '[PAD]'}
+                self.tokenizer.add_special_tokens(special_tokens_dict)
+
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 1
+                self.end_idx = 361
+                self.padding_idx = 0
+                self.unk_idx = 3
+            case "LGAI-EXAONE/K-EXAONE-236B-A23B":
+                self.len_vocab = len(self.tokenizer)
+                self.start_idx = 1
+                self.end_idx = 53
+                self.padding_idx = 0
+                self.unk_idx = 3
+            case _:
+                raise ValueError
+
+
+    def add_batch_to_metrics(self, preds, labels):
+
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # Some simple post-processing
+        decoded_preds = [pred.strip() for pred in decoded_preds]
+        decoded_labels = [[label.strip()] for label in decoded_labels]
+
+        self.metric_bleu.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_chrf.add_batch(predictions=decoded_preds, references=decoded_labels)
+        self.metric_meteor.add_batch(predictions=decoded_preds, references=decoded_labels)
+
+    def compute_metrics(self):
+        results = {}
+        print("computing bleu score")
+        results['bleu'] = self.metric_bleu.compute()['score']
+        print("computing chrf score")
+        results['chrf'] = self.metric_chrf.compute()['score']
+        print("computing meteor score")
+        results['meteor'] = self.metric_meteor.compute()['meteor']
+
+        print("metric computings all done")
+
+        self.metric_bleu = evaluate.load("sacrebleu")
+        self.metric_chrf = evaluate.load("chrf")
+        self.metric_meteor = evaluate.load("meteor")
+
+        return results
+    
+    def init_metrics_per_cat(self):
+        for i in range(6):
+            # 문장에 총 6개의 카테고리 존재
+            self.metric_bleu_per_cat.append(evaluate.load("sacrebleu"))
+            self.metric_chrf_per_cat.append(evaluate.load("chrf"))
+            self.metric_meteor_per_cat.append(evaluate.load("meteor"))
+
+    
+    def add_batch_to_metrics_per_cat(self, preds, labels, cat_list):
+
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # Some simple post-processing
+        decoded_preds = [pred.strip() for pred in decoded_preds]
+        decoded_labels = [[label.strip()] for label in decoded_labels]
+
+        # 문장에 총 6개의 카테고리 존재
+        decoded_preds_per_cat = [[] for i in range(6)]
+        decoded_labels_per_cat = [[] for i in range(6)]
+
+        assert len(decoded_preds) == len(cat_list)
+
+        for i, cat in enumerate(cat_list):
+            decoded_preds_per_cat[cat].append(decoded_preds[i])
+            decoded_labels_per_cat[cat].append(decoded_labels[i])
+        
+        for i in range(6):
+            if decoded_preds_per_cat[i]:
+            # 배치에 특정 카테고리 문장이 없을 수도 있으므로 if로 확인
+                self.metric_bleu_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+                self.metric_chrf_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+                self.metric_meteor_per_cat[i].add_batch(predictions=decoded_preds_per_cat[i], references=decoded_labels_per_cat[i])
+
+
+    def compute_metrics_per_cat(self):
+        results = {}
+        print("computing bleu score per cat")
+        for i in range(6):
+            results[f'bleu_{i}'] = self.metric_bleu_per_cat[i].compute()['score']
+
+        print("computing chrf score per cat")
+        for i in range(6):
+            results[f'chrf_{i}'] = self.metric_chrf_per_cat[i].compute()['score']
+
+        print("computing meteor score per cat")
+        for i in range(6):
+            results[f'meteor_{i}'] = self.metric_meteor_per_cat[i].compute()['meteor']
+
+        print("metric per cat computings all done")
+
+        self.metric_bleu_per_cat = []
+        self.metric_chrf_per_cat = []
+        self.metric_meteor_per_cat = []
+
+        return results
 
 # def convert_examples_to_features(tokenizer, max_token_length, examples):
 # @@@@@@@@@ examples가 첫번쨰 인자가 아니면 
@@ -116,14 +326,13 @@ def convert_examples_to_features(examples, tokenizer, max_token_length):
     return model_inputs
 
 
-
 def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     # print('Original:\n', batch)
     # print("".center(50, "-"))
     # batch는 [{'kor':..., 'en':..., 'cat':숫자, 'input_ids':[...], 'attention_mask':[1, ...], 'labels': [...]}, ...] 형태
     
     # keys = batch[0].keys()
-    keys = ['kor', 'en', 'domain', 'cat', 'style', 'style_class', 'input_ids', 'attention_mask', 'labels']
+    keys = ['kor', 'en', 'cat', 'style', 'input_ids', 'attention_mask', 'labels', 'length', 'length_label']
     # print(f"==>> keys: {keys}")
     # print("".center(50, "-"))
     
@@ -150,7 +359,9 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     new_batch['labels'] = [torch.LongTensor(label) for label in new_batch['labels']]
     new_batch['attention_mask'] = [torch.LongTensor(mask) for mask in new_batch['attention_mask']]
 
-    new_batch['ntokens'] = sum([l.numel() for l in new_batch['labels']])
+    new_batch['ntokens'] = sum(new_batch['length_label'])
+
+    new_batch['ntokens_input'] = sum(new_batch['length'])
 
     # decoder input의 attention mask 생성
     new_batch['decoder_mask'] = [torch.ones_like(d_inp, dtype=torch.long) for d_inp in new_batch['decoder_inputs']]
@@ -172,3 +383,143 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     new_batch['decoder_mask'] = padded_d_masks
     
     return new_batch
+
+# collate_fn과 동일하지만 testset에 맞게 style key 제거
+def collate_fn_test(batch, start_idx, end_idx, padding_idx, unk_idx):
+    # print('Original:\n', batch)
+    # print("".center(50, "-"))
+    # batch는 [{'kor':..., 'en':..., 'cat':숫자, 'input_ids':[...], 'attention_mask':[1, ...], 'labels': [...]}, ...] 형태
+    
+    # keys = batch[0].keys()
+    keys = ['kor', 'en', 'cat', 'input_ids', 'attention_mask', 'labels', 'length', 'length_label']
+    # print(f"==>> keys: {keys}")
+    # print("".center(50, "-"))
+    
+    # new_batch = {k:[] for k in keys}
+    # new_batch['decoder_inputs'] = []
+    
+    # for b in batch:
+    #     for k,v in b.items():
+    #         if k == 'input_ids' or k == 'attention_mask':
+    #             new_batch[k].append(torch.LongTensor(v))
+    #         elif k == 'labels':
+    #             new_batch[k].append(torch.LongTensor(v))
+    #             new_batch['decoder_inputs'].append(torch.LongTensor([65001] + v[:-1]))
+    #         else:
+    #             new_batch[k].append(v)
+
+    # key값별로 value 다 모으기
+    new_batch = {k:[b[k] for b in batch] for k in keys}
+
+    # list들 LongTensor로 변환
+    new_batch['decoder_inputs'] = [torch.LongTensor([start_idx] + label[:-1]) for label in new_batch['labels']]
+    # print(f"==>> new_batch['decoder_inputs']: {new_batch['decoder_inputs']}")
+    new_batch['input_ids'] = [torch.LongTensor(inp) for inp in new_batch['input_ids']]
+    new_batch['labels'] = [torch.LongTensor(label) for label in new_batch['labels']]
+    new_batch['attention_mask'] = [torch.LongTensor(mask) for mask in new_batch['attention_mask']]
+
+    new_batch['ntokens'] = sum(new_batch['length_label'])
+
+    new_batch['ntokens_input'] = sum(new_batch['length'])
+
+    # decoder input의 attention mask 생성
+    new_batch['decoder_mask'] = [torch.ones_like(d_inp, dtype=torch.long) for d_inp in new_batch['decoder_inputs']]
+
+
+    # 각 input과 target 텐서를 패딩
+    padded_inputs = pad_sequence(new_batch['input_ids'], batch_first=True, padding_value=padding_idx)
+    new_batch['input_ids'] = padded_inputs
+    padded_decoder_inputs = pad_sequence(new_batch['decoder_inputs'], batch_first=True, padding_value=padding_idx)
+    new_batch['decoder_inputs'] = padded_decoder_inputs
+    padded_targets = pad_sequence(new_batch['labels'], batch_first=True, padding_value=padding_idx)
+    new_batch['labels'] = padded_targets
+
+    # attention 마스크는 패딩(padding_idx) 대신 False(0)을 입력
+    padded_masks = pad_sequence(new_batch['attention_mask'], batch_first=True, padding_value=0)
+    new_batch['attention_mask'] = padded_masks
+
+    padded_d_masks = pad_sequence(new_batch['decoder_mask'], batch_first=True, padding_value=0)
+    new_batch['decoder_mask'] = padded_d_masks
+    
+    return new_batch
+
+
+# 각 배치 내 최대길이 * 배치 갯수 값을 일정값으로 고정하는 sampler
+class TokenPadBatchSampler(TokenBatchSampler):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 29704824, mean_token_count = 23):
+        super().__init__(dataset, target_tokens, max_batch_samples, total_token_count, mean_token_count)
+        
+    # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
+    def __iter__(self):
+        indices = self.indices
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ num_workers > 0 인 경우 여러 worker가 동일 인덱스를 순회하지 않도록 indices를 쪼개줘야 한다
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            # 현재 __iter__를 호출한 worker id (ex: 0, 1, 2, 3)
+            num_workers = worker_info.num_workers
+            # 총 worker 수 (ex: 4)
+            indices = self.indices[worker_id::num_workers]
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        
+        i = 0
+        while i < len(indices): # 데이터셋의 데이터 전부를 처리할때까지 while loop
+            batch = []
+            current_tokens = 0
+            # 배치 내 총 토큰수 카운트
+
+            b_max_length = 0
+            # 배치 내 문장 최대 길이
+            current_tokenpads = 0
+            # 배치 내 총 토큰+패드 수 카운트
+            
+            while (current_tokens < self.target_tokens and 
+                   len(batch) * b_max_length < self.target_tokens and
+                   i < len(indices)):
+            # 현재 배치 내 총 토큰 수가 target_tokens 보다 작고
+            # 배치 내 sample 개수 * 배치 내 문장 토큰 최대 길이가 target_tokens 보다 작고
+            # 데이터셋에 남은 데이터가 있을때 while loop
+                
+                idx = indices[i]
+
+                if self.lengths[idx] <= b_max_length:
+                    # 새 문장 토큰 길이가 기존 최대값보다 작거나 같으면
+                    if current_tokenpads + b_max_length > self.target_tokens:
+                        # 최대값 * (배치 개수 + 1(새문장)) 값이 self.target_tokens보다 큰지 확인하고
+                        # 클 경우 새문장을 제외한 기존 배치만 yield
+                        break
+                else:
+                    # 새 문장 토큰 길이가 기존 최대값보다 크면
+                    if (len(batch) + 1) * self.lengths[idx] > self.target_tokens:
+                        # 새문장 토큰 길이를 최대값 기준으로 배치 내 총 토큰+패드 개수를 계산 했을 때
+                        # 이 값이 self.target_tokens 보다 크면 갱신을 취소하고
+                        # 새 문장을 제외한 기존 배치만 yield
+                        break
+
+                    b_max_length = self.lengths[idx]
+                    # 최대값을 갱신해도 총 토큰+패드 개수가 self.target_tokens를 안넘으면
+                    # 최대값을 갱신
+
+                if current_tokens + self.lengths[idx] > self.target_tokens:
+                    # 이번 문장이 들어오면 배치 내 총 토큰 수가
+                    # self.target_tokens 보다 커질 경우
+                    # 큰 문장을 포함하기 전 배치를 바로 yield
+                    break
+
+                batch.append(idx)
+                current_tokens += self.lengths[idx]
+                current_tokenpads = len(batch) * b_max_length
+
+                i += 1
+            
+            if len(batch) >= 1:
+                yield batch
+
+    # __len__: 총 배치 수를 알려주는 메소드
+    # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
+    def __len__(self):
+        # 토큰+패드 기준으로 배치 크기를 제한하므로
+        # __len__값은 부정확
+        return (self.total_token_count // self.target_tokens) + 1
