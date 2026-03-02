@@ -19,11 +19,11 @@ from functools import partial
 from collections import defaultdict
 # custom sampler에서 사용
 
-class Loaders():
+class Loaders_10M():
     def __init__(
             self,
-            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data_10m.csv",
-            test_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/ml_practice/transformer/data_test.csv",
+            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data_10m.csv",
+            test_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data_test.csv",
             max_token_length = 512,
             target_tokens = None,
             batch_size_train = 8,
@@ -94,10 +94,6 @@ class Loaders():
         testset_dict = DatasetDict({
             'test': testset,
         })
-
-        
-
-        # print(dataset_dict)
 
         NUM_CPU = multiprocessing.cpu_count()
         # print(f"==>> NUM_CPU: {NUM_CPU}")
@@ -444,9 +440,105 @@ def collate_fn_test(batch, start_idx, end_idx, padding_idx, unk_idx):
     return new_batch
 
 
+# 배치 안 총 토큰 개수를 일정하게 만들어주는 custom sampler
+class TokenBatchSampler(Sampler):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 268075627, mean_token_count = 23):
+        # dataset에 'length' 컬럼 있어야 함
+        self.lengths = dataset["length"]
+
+        self.target_tokens = target_tokens
+        self.max_batch_samples = max_batch_samples
+
+        self.num_samples = len(dataset)
+        # torch.randperm에 입력할 데이터셋 길이
+
+        # __len__에 쓰이는 변수들
+        self.total_token_count = total_token_count
+        self.mean_token_count = mean_token_count
+        self.len_bool = self.max_batch_samples * self.mean_token_count < self.target_tokens
+
+        self.indices = []
+
+    def set_epoch_indices(self):
+    # 각 에폭 시작 시점에 한번씩 호출 필요
+        self.indices = torch.randperm(self.num_samples).tolist()
+        
+    # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
+    def __iter__(self):
+        indices = self.indices
+
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ num_workers > 0 인 경우 여러 worker가 동일 인덱스를 순회하지 않도록 indices를 쪼개줘야 한다
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            # 현재 __iter__를 호출한 worker id (ex: 0, 1, 2, 3)
+            num_workers = worker_info.num_workers
+            # 총 worker 수 (ex: 4)
+            indices = self.indices[worker_id::num_workers]
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        
+        i = 0
+        while i < len(indices): # 데이터셋의 데이터 전부를 처리할때까지 while loop
+            batch = []
+            current_tokens = 0
+            # 배치 내 총 토큰수 카운트
+            
+            while (current_tokens < self.target_tokens and 
+                #    len(batch) < self.max_batch_samples and 
+                   i < len(indices)):
+            # 현재 배치 내 총 토큰 수가 target_tokens 보다 작고
+            # 배치 내 sample 개수가 max_batch_samples 보다 작고
+            # 데이터셋에 남은 데이터가 있을때 while loop
+                
+                idx = indices[i]
+                # if current_tokens + self.lengths[idx] <= self.target_tokens:
+                #     batch.append(idx)
+                #     current_tokens += self.lengths[idx]
+                # 이렇게 두면 if 조건문이 false가 될 때의 idx를 skip 하는 문제가 있음
+                if current_tokens + self.lengths[idx] >= self.target_tokens * 1.2:
+                    # 갑자기 매우 큰 문장이 들어와 배치에 입력하면 
+                    # self.target_tokens * 1.2 보다 커질 경우
+                    # 큰 문장을 포함하기 전 배치를 바로 yield
+                    break
+                    # @@@ 여기서 break 했는데 현재까지의 batch 길이가 1이어서 yield 안되는 경우
+                    # @@@ while i < self.num_samples:로 돌아가
+                    # @@@ batch가 초기화된다 ==> 매우 큰 문장 바로 전 문장 skip 
+                    # @@@ @@@ 단일 문장으로 self.target_tokens * 1.2이 되는 경우는 없다고 가정
+                    # @@@ @@@ 있을 경우 무한 루프 발생
+
+                batch.append(idx)
+                current_tokens += self.lengths[idx]
+
+                i += 1
+            
+            if len(batch) >= 1:
+                yield batch
+
+    # __len__: 총 배치 수를 알려주는 메소드
+    # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
+    def __len__(self):
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # 학습셋 총 토큰 29704824개
+        # 데이터 당 평균 토큰 수 23.17개 ~ 23
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        # @@@ 40586486, 31.66 값은 label 기준
+        # 학습셋 총 토큰 40586486개
+        # 데이터 당 평균 토큰 수 31.66개 ~ 32
+        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        # if self.len_bool:
+        # # self.max_batch_samples * self.mean_token_count가 self.target_tokens 보다 작으면 
+        # # 배치의 총 토큰 수가 self.target_tokens을 채우기 전에 self.max_batch_samples 도달
+            # return (self.num_samples // self.max_batch_samples) + 1
+
+        # => (40586486 // 10000) + 1
+        return (self.total_token_count // self.target_tokens) + 1
+
+
 # 각 배치 내 최대길이 * 배치 갯수 값을 일정값으로 고정하는 sampler
 class TokenPadBatchSampler(TokenBatchSampler):
-    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 29704824, mean_token_count = 23):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 268075627, mean_token_count = 23):
         super().__init__(dataset, target_tokens, max_batch_samples, total_token_count, mean_token_count)
         
     # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
@@ -520,6 +612,8 @@ class TokenPadBatchSampler(TokenBatchSampler):
     # __len__: 총 배치 수를 알려주는 메소드
     # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
     def __len__(self):
+        # 토큰 개수 268075627
+        # label 토큰 개수 329348725
         # 토큰+패드 기준으로 배치 크기를 제한하므로
         # __len__값은 부정확
         return (self.total_token_count // self.target_tokens) + 1
