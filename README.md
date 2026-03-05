@@ -3,9 +3,9 @@
 한국어 → 영어 번역 트랜스포머를 직접 구현하고, 데이터 규모·토크나이저·학습 전략 등을 바꾸어가며 성능을 비교한 실험 결과를 정리한 저장소입니다.  
 모델 구현은 Harvard NLP의 Annotated Transformer 코드를 기반으로 하며, 실험 과정에서의 세부 설계와 튜닝 전략을 문서화했습니다.
 
-> 모델 코드 기반  
+> #### 모델 코드 기반  
 > - Annotated Transformer: https://nlp.seas.harvard.edu/annotated-transformer/
-> 사용 데이터셋
+> #### 사용 데이터셋
 > - AIHUB 한국어-영어 번역(병렬) 말뭉치: https://aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&aihubDataSe=data&dataSetSn=126
 > - nayohan/aihub-en-ko-translation-12m: https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m
 
@@ -30,16 +30,25 @@
 
 [ayohan/aihub-en-ko-translation-12m 데이터셋](https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m)을 전처리를 통해 10M 규모로 정제했습니다.
 
-#### 1-2-1. 세부 분류 통합 (수백 종 → 10개 대분류)
+#### 1-2-1. 세부 분류 통합 (수백 종 → 8개 대분류)
 
-여러 데이터셋이 합쳐지면서 **문장 분류(category)가 수백 종**으로 난립해 있었습니다. 예를 들어:
+여러 데이터셋이 합쳐지면서 **문장 분류(category)가 수백 종**으로 난립해 있었습니다. 
 
-- "문화", "문화·예술", "문화·교육", "문화재", "민속", "생활·민속", "문화유산", "역사", "역사/근현대", "역사/전통 시대" 등
+예를 들어:
+- "문화", "문화·예술", "문화·교육", "문화재", "민속", "생활·민속", "문화유산", "역사", "역사/근현대", "역사/전통 시대" 등 위와 같은 라벨들을 **단일 대분류 `"문화/예술/역사"`**로 통합
 
-위와 같은 라벨들을 **단일 대분류 `"문화/예술/역사"`**로 통합했습니다.
-
+예시와 같이 유사한 문장 분류들을 8개 대분류로 통합했습니다.
 - 유사/중복 라벨들을 규칙 기반 매핑 테이블로 통합
-- 최종적으로 약 10개 수준의 상위 카테고리로 정리
+- 최종적으로 약 8개 수준의 상위 카테고리로 정리
+
+과학/기술/학술자료    3551719
+일상/대화         2913310
+문화/예술/역사      1260217
+뉴스/시사         1181603
+의학/보건          653544
+법률/행정          621916
+특허             358307
+금융/경제          155400
 
 > TODO: 라벨 통합 전/후 분포를 비교하는 표 또는 그래프 추가  
 > TODO: 라벨 매핑 테이블 일부 예시 추가
@@ -52,7 +61,7 @@
 - `구어체` (informal, spoken)
 - `혼재` (분류 애매하거나 두 스타일이 섞인 문장)
 
-데이터셋/소스 도메인별 규칙과 간단한 휴리스틱을 조합해 스타일을 분류하고, `style`, `style_class` 열에 저장했습니다.
+데이터셋/소스 도메인별 규칙과 간단한 휴리스틱을 조합해 스타일을 분류하고, `style` 열에 저장했습니다.
 
 > TODO: 각 스타일별 데이터 수, 예시 문장 추가  
 > TODO: 스타일에 따른 성능 차이를 보여주는 그래프 자리 (WandB)
@@ -152,7 +161,7 @@
 Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능을 비교했습니다.
 
 - Encoder embedding (입력 임베딩)
-- Decoder embedding
+- Decoder embedding (출력 임베딩)
 - Generator weights (decoder output → vocab logits projection)
 
 ### 실험 조건
@@ -182,9 +191,9 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 ### 기본 스케줄 (Annotated Transformer 스타일)
 
 - 형식:  
-  \[
+  $$
   lr = d_{model}^{-0.5} \cdot \min\left(step^{-0.5}, step \cdot warmup^{-1.5}\right)
-  \]
+  $$
 - 실험한 변수:
   - warmup step 수 (예: 4,000 / 8,000 / 16,000 등)
   - 전체 스케일링 factor (multiplying factor) 변경
@@ -225,7 +234,7 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 
 - PyTorch AMP (`torch.cuda.amp`)를 사용해 half precision으로 계산,  
   - 메모리 사용량 감소  
-  - 연산 속도 증가 (특히 Tensor Core 활용 시)
+  - 연산 속도 증가
 
 #### 6-2-2. Sequence 길이 변화에 따른 reserved memory 증가 문제
 
@@ -237,11 +246,9 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 ##### 6-2-2-1. Custom Sampler 시도
 
 - 아이디어: batch마다 `token + pad` 개수를 일정하게 유지
-  - 토큰 개수 기준으로 bucket을 만들고, 비슷한 길이 문장끼리 묶어서 배치 구성
+  - TODO: 토큰 개수 기준으로 bucket을 만들고, 비슷한 길이 문장끼리 묶어서 배치 구성
 - 하지만, 실제 실험에서는 다음 전략이 더 효율적이었습니다.
-  - **batch당 문장 개수를 일정하게 유지하는 방식이 더 빠름**
-  - memory pre-allocation 시  
-    - `batch_size × (데이터셋 전체에서의 최대 토큰 길이)` 기준으로 할당
+  - **batch당 문장 개수를 일정하게 유지** 하고 memory pre-allocation 시 `batch_size × (데이터셋 전체에서의 최대 토큰 길이)` 기준으로 할당
 
 ##### 6-2-2-2. 메모리 한계 초과 시 동적 처리
 
@@ -267,7 +274,7 @@ batch size가 커지면서,
 - vocab 크기가 큰 토크나이저(EXAONE 계열)를 사용할 때는  
   각 Transformer block에 **gradient checkpoint**를 적용하여 메모리 사용량을 추가로 줄였습니다.
 - 구현:
-  - `torch.utils.checkpoint.checkpoint(module, *inputs, use_reentrant=False)`를 encoder/decoder block에 적용
+  - `torch.utils.checkpoint.(m, out, mask, testing, use_reentrant=False)`를 encoder/decoder block에 적용
 - 효과:
   - 피크 메모리 사용량 감소
   - 계산량 증가(속도 저하)는 있지만, 더 큰 batch/effective batch로 학습 가능
@@ -283,8 +290,6 @@ batch size가 커지면서,
 본 저장소의 실험 결과는 대부분 WandB를 통해 기록되었습니다.
 
 - 프로젝트 이름: `transformer 한영 번역 실험`
-- 주요 태그:
-
 
 > TODO: 아래 항목에 WandB 링크/이미지 삽입
 >
@@ -308,6 +313,8 @@ batch size가 커지면서,
 # 3. 10M 데이터셋 + gradient accumulation + best tokenizer 설정
 
 ```
+
+---
 
 ## 9. 참고 자료
 - Annotated Transformer 구현: https://nlp.seas.harvard.edu/annotated-transformer/
