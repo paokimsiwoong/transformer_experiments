@@ -32,7 +32,7 @@
 
 #### 1-2-1. 세부 분류 통합 (수백 종 → 8개 대분류)
 
-여러 데이터셋이 합쳐지면서 **문장 분류(category)가 수백 종**으로 난립해 있었습니다. 
+여러 데이터셋이 합쳐지면서 **문장 분류(category)가 수백 종(domain 664개, subdomain 657개)**으로 난립해 있었습니다. 
 
 예시:
 - "문화", "문화·예술", "문화·교육", "문화재", "민속", "생활·민속", "문화유산", "역사", "역사/근현대", "역사/전통 시대" 등 위와 같은 라벨들을 **단일 대분류 `"문화/예술/역사"`**로 통합
@@ -123,19 +123,19 @@
 
 ## 3. 토크나이저 비교 및 최종 선정
 
-다양한 한국어–영어 대응 토크나이저를 비교하여 최종 토크나이저를 선정했습니다.
+두 종류의 한국어–영어 대응 토크나이저를 비교하여 최종 토크나이저를 선정했습니다.
 
 ### 후보 토크나이저
 
-- `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
-- `LGAI-EXAONE/K-EXAONE-236B-A23B`
 - `KETI-AIR/ke-t5-base`
+- `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
 
 ### 커버리지와 학습 안정성
 
-- EXAONE 계열 토크나이저  
+- `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
+  - [nayohan/aihub-en-ko-translation-12m](https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m) 데이터셋을 사용해 학습한 모델의 토크나이저
   - 1M, 10M 데이터셋 모두에서 **unknown 토큰 없이 전체 문장을 토큰화 가능**  
-  - 단, vocabulary 크기가 매우 큼 (약 102,400 / 153,600) → embedding/softmax 차원이 커져 학습이 잘 진행되지 않고, 메모리 사용량도 커짐
+  - 단, vocabulary 크기가 매우 큼 (102,400) → embedding/softmax 차원이 커져 학습이 잘 진행되지 않고, 메모리 사용량도 커짐
 - `KETI-AIR/ke-t5-base`  
   - vocab size: 64,100  
   - 학습이 안정적으로 진행되며, 수렴도 잘 되는 편  
@@ -157,6 +157,8 @@
 > - 학습 곡선 (WandB),  
 > - 최종 BLEU/METEOR/ChrF  
 > 를 비교하는 표 및 그래프 자리
+
+>> TODO: 10m 데이터셋에서는 결과가 달라지는지 확인 필요
 
 ---
 
