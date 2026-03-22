@@ -170,11 +170,12 @@
 
 > ![필터링 결과 예시](imgs/filtered_ex.png)
 > 필터링 과정에서 정상 문장 데이터도 일부 필터링이 된 것을 확인
->> (혹시 카탈로그에 있는 매콤달콤 요 뽑기 320 g를 봤나요?	, Have you seen the sweet-and-spicy Yopokki(320g) in the catalog?)
+>> (혹시 카탈로그에 있는 매콤달콤 요 뽑기 320 g를 봤나요?	, Have you seen the sweet-and-spicy Yopokki(320g) in the catalog?)  
 >> (기존에 부족했던 기능을 보완하여, 중소기업 보안 환경에 맞도록 최적화하였습니다., It has been optimized for small and medium-sized enterprises' (SMEs) security environments by supplementing the lacking functions.)
 
 ##### 1-2-4-3. 공백 정규화
-![공백만 다르고 사실상 동일](imgs/weird_spaces.png)
+![공백만 다르고 사실상 동일](imgs/weird_spaces.png)  
+
 필터링 확인 과정에서 공백의 종류가 다르거나, 공백이 추가되거나 해서 사실상 같은 문장 쌍이지만 다르게 취급되어 남아 있는 중복들을 발견  
 - 모든 공백을 space 1번으로 통일하고 앞뒤 공백을 삭제 후 중복 제거를 한번 더 시행하여 14521개 데이터를 추가 삭제
 
