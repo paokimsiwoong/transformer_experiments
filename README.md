@@ -364,6 +364,8 @@
     - 소량의 unknown 토큰 비율은 무시 가능한 수준
     - 메모리 사용량과 연산량을 고려할 때 가장 실용적
 
+1m 데이터셋 9 epoch 실험 결과 비교
+
 |             | validatin token loss |    bleu |  meteor |      chrf |
 |:------------|---------------------:|--------:|--------:|----------:|
 | ke-t5       |              2.66153 | 33.4245 | 0.61783 |  59.88783 |
@@ -398,10 +400,20 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 ### 최종 결과
 
 - **weight tying 미사용 (5번)가 가장 좋은 성능**
-  - tying을 통해 파라미터 수는 줄어들지만, 한국어-영어 번역이라는 비대칭 작업에서는 자유도가 높은 설정이 더 유리
+  - encoder와 decoder embedding을 공유하는 경우가 token별 로스는 가장 작지만 metric 점수가 더 높은 weight tying 미사용을 선택
 
-> TODO: 5가지 설정별 파라미터 수 / BLEU / METEOR / ChrF 비교 표  
-> TODO: WandB 실험 스크린샷 자리
+1m 데이터셋 3 epoch 실험 결과 비교
+
+|                       | validatin token loss |     bleu |  meteor |      chrf |
+|:----------------------|---------------------:|---------:|--------:|----------:|
+| 3-way tying           |              3.98467 | 16.41380 | 0.41464 |  41.42203 |
+| en_embed == de_embed  |              3.21403 | 26.08797 | 0.54899 |  53.61686 |
+| en_embed == ffc_embed |              3.84131 | 15.95757 | 0.41242 |  41.29004 |
+| de_embed == ffc_embed |              3.45032 | 25.16554 | 0.53985 |  52.41564 |
+| no tying              |              3.21805 | 26.23472 | 0.55195 |  53.72043 |
+
+![방식별 metric 점수 비교](imgs/weight_tying_test_metric.png)
+![방식별 loss 비교](imgs/weight_tying_test_loss.png)
 
 ---
 
