@@ -322,7 +322,9 @@
 - **ChrF**  
   - 문자 단위 F-score 기반 지표로, 특히 한국어/영어 같은 형태소 구조가 다른 언어 쌍에서 유용
 
-> TODO: 메트릭별 성능 점수 예시
+> TODO: metric 선택 이유
+
+![metrics](imgs/metrics_ex.png)
 
 ---
 
@@ -337,16 +339,22 @@
 
 ### 커버리지와 학습 안정성
 
-- `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
-  - [nayohan/aihub-en-ko-translation-12m](https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m) 데이터셋을 사용해 학습한 모델의 토크나이저
-  - 1M, 10M 데이터셋 모두에서 **unknown 토큰 없이 전체 문장을 토큰화 가능**  
-  - 단, vocabulary 크기가 매우 큼 (102,400) → embedding/softmax 차원이 커져 학습이 잘 진행되지 않고, 메모리 사용량도 커짐
 - `KETI-AIR/ke-t5-base`  
   - vocab size: 64,100  
   - 학습이 안정적으로 진행되며, 수렴도 잘 되는 편  
   - 단, 일부 토큰이 `<unk>`으로 처리:
-    - 1M train 전체 토큰 중 약 0.05%가 unknown
-    - 10M train 전체 토큰 중 약 0.08%가 unknown
+    - 1M train 전체 토큰(29704824) 중 약 0.05%(14653)가 unknown
+      - ![1m_t5_train_input_total](imgs/1m_t5_total.png)
+      - ![1m_t5](imgs/1m_t5.png)
+    - 10M train 전체 토큰(TODO:데이터셋 수정 -> 전체토큰수 수정 필요) 중 약 0.08%가 unknown
+      - ![10m_t5](imgs/10m_t5.png)
+- `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
+  - [nayohan/aihub-en-ko-translation-12m](https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m) 데이터셋을 사용해 학습한 모델의 토크나이저
+  - 1M, 10M 데이터셋 모두에서 unknown 토큰 없이 전체 문장을 토큰화 가능
+    - ![1m_exaone_train_input_total](imgs/1m_exaone_total.png)
+    - ![1m_exaone](imgs/1m_exaone.png)
+    - ![10m_exaone](imgs/10m_exaone.png)
+  - 단, vocabulary 크기가 매우 큼 (102,400) → embedding/softmax 차원이 커져 학습이 잘 진행되지 않고, 메모리 사용량도 커짐
 
 ### 최종 선택
 
@@ -356,14 +364,15 @@
     - 소량의 unknown 토큰 비율은 무시 가능한 수준
     - 메모리 사용량과 연산량을 고려할 때 가장 실용적
 
-> TODO: 각 토크나이저별  
-> - vocab size,  
-> - unknown 비율,  
-> - 학습 곡선 (WandB),  
-> - 최종 BLEU/METEOR/ChrF  
-> 를 비교하는 표 및 그래프 자리
+|             | validatin token loss |    bleu |  meteor |      chrf |
+|:------------|---------------------:|--------:|--------:|----------:|
+| ke-t5       |              2.66153 | 33.4245 | 0.61783 |  59.88783 |
+| exaone-7.8b |              2.83684 | 8.01984 | 0.41363 |  45.54676 |
 
->> TODO: 10m 데이터셋에서는 결과가 달라지는지 확인 필요
+![metric 점수 비교](imgs/t5_vs_exaone_metric.png)
+![loss 비교](imgs/t5_vs_exaone_loss.png)
+
+> TODO: 10m 데이터셋에서는 결과가 달라지는지 확인 필요
 
 ---
 
