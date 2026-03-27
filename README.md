@@ -364,7 +364,7 @@
     - 소량의 unknown 토큰 비율은 무시 가능한 수준
     - 메모리 사용량과 연산량을 고려할 때 가장 실용적
 
-#### 1M 데이터셋 9 epoch 실험 결과 비교
+#### **1M 데이터셋 9 epoch 실험 결과 비교**
 
 |             | validatin token loss |    bleu |  meteor |      chrf |
 |:------------|---------------------:|--------:|--------:|----------:|
@@ -404,7 +404,7 @@
     - 학습을 진행할 때, step당 전체 loss를 backward 하는 것이 아니라 논문과 동일하게 토큰 1개 당 평균 loss 계산한 후 backward하므로  
     사실상 step 별 weight 갱신 크기가 이미 논문과 비슷함 ==> lr의 step 항을 추가 조정할 필요가 없음
 
-#### warmup - 1M 데이터셋 3 epoch 실험 결과 비교
+#### **warmup - 1M 데이터셋 3 epoch 실험 결과 비교**
 
 |               | validatin token loss |     bleu |  meteor |      chrf |
 |:--------------|---------------------:|---------:|--------:|----------:|
@@ -415,7 +415,7 @@
 ![warmup metric 점수 비교](imgs/lr_test1_metric.png)
 ![warmup loss 비교](imgs/lr_test1.png)
 
-#### step vs step/100 - 1M 데이터셋 9 epoch 실험 결과 비교
+#### **step vs step/100 - 1M 데이터셋 9 epoch 실험 결과 비교**
   - step의 경우 3 epoch씩 끊어서 총 9 epoch 학습
 
 |          | validatin token loss |     bleu |  meteor |      chrf |
@@ -456,7 +456,7 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
     - 한국어 -> 한국어 생성이나 영어 -> 영어 생성과는 다르게 구조가 다른 언어간의 번역에는  
     다른 언어를 다루는 레이어간의 weight 공유가 오히려 학습에 악영향을 주는 것으로 추정
 
-#### 1M 데이터셋 3 epoch 실험 결과 비교
+#### **1M 데이터셋 3 epoch 실험 결과 비교**
 
 |                         | validatin token loss |     bleu |  meteor |      chrf |
 |:------------------------|---------------------:|---------:|--------:|----------:|
@@ -469,7 +469,7 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 ![방식별 metric 점수 비교](imgs/weight_tying_test_metric.png)
 ![방식별 loss 비교](imgs/weight_tying_test_loss.png)
 
-#### warmup steps 8,000에서 2번, 5번 비교
+#### **warmup steps 8,000에서 2번, 5번 비교**
 
 |                         | validatin token loss |     bleu |  meteor |      chrf |
 |:------------------------|---------------------:|---------:|--------:|----------:|
