@@ -364,7 +364,7 @@
     - 소량의 unknown 토큰 비율은 무시 가능한 수준
     - 메모리 사용량과 연산량을 고려할 때 가장 실용적
 
-1m 데이터셋 9 epoch 실험 결과 비교
+1M 데이터셋 9 epoch 실험 결과 비교
 
 |             | validatin token loss |    bleu |  meteor |      chrf |
 |:------------|---------------------:|--------:|--------:|----------:|
@@ -378,13 +378,68 @@
 
 ---
 
-## 4. Embedding / Generator Weight Tying 실험
+## 4. Learning Rate 스케줄 실험
+
+학습률 스케줄은 **Annotated Transformer 글에서 제안된 함수**를 기본으로 사용하고 관련 변수들을 조정하며 실험
+
+- 형식:  
+  $$  
+  lr = d_{model}^{-0.5} \cdot \min\left(step^{-0.5}, step \cdot warmup^{-1.5}\right)  
+  $$  
+- 실험한 변수:
+  - warmup step 수 (4,000 / 8,000 / 16,000)
+  - step == step/1 vs step_m == step/100
+    - 논문은 각 step당 배치 내 source 토큰 2만5천, target 토큰 2만 5천개 정도로 두고 총 100000 step 진행  
+    ==> 논문 데이터셋 450만 문장 한 epoch에 180 step ==> 약 556 epoch (100000/180) 진행
+    - 내 학습률 실험에서는 배치 당 문장 8개로 두고 실험하여 step/1 그대로 두면 토큰 개수 기준으로는 lr 감쇠가 100배 빠르게 진행됨  
+      - 1M 데이터셋 train split 1281934문장의 총 target 토큰 개수 40586486 ==> 문장당 평균 31.66 토큰  
+      ==> 배치 8 * 31.66 = 253.28 ==> 25000 / 253.28 ~= 98.705 ==> 대략 100배  
+      이 실험 설정에서 100개의 step이 논문의 1 step과 target 토큰 개수가 비슷하므로  
+      lr 함수에서 step 대신 step_m == step/100으로 두고 실험해 성능 비교  
+
+> TODO: 단순 감쇠 함수 (예: $a^{-x}$ 꼴의 지수 감쇠)
+> TODO: step/epoch 기반 cosine decay 등
+
+### 최종 결과
+
+- **warmup step 수 8000, step/1 조합이 가장 좋은 성능**
+  - 예상과는 다르게 step/100보다 step/1가 학습이 안정적이고 성능도 좋은 것을 확인
+    - 학습을 진행할 때, step당 전체 loss를 backward 하는 것이 아니라 논문과 동일하게 토큰 1개 당 평균 loss 계산한 후 backward하므로  
+    사실상 step 별 weight 갱신 크기가 이미 논문과 비슷함 ==> lr의 step 항을 추가 조정할 필요가 없음
+
+warmup - 1M 데이터셋 3 epoch 실험 결과 비교
+
+|               | validatin token loss |     bleu |  meteor |      chrf |
+|:--------------|---------------------:|---------:|--------:|----------:|
+| warmup 16,000 |              3.21403 | 26.08797 | 0.54899 |  53.61686 |
+| warmup 8,000  |              3.16969 | 26.69073 | 0.55397 |  54.04070 |
+| warmup 4,000  |              3.19621 | 26.28067 | 0.55122 |  53.83636 |
+
+![warmup metric 점수 비교](imgs/lr_test1_metric.png)
+![warmup loss 비교](imgs/lr_test1.png)
+
+step vs step/100 - 1M 데이터셋 9 epoch 실험 결과 비교
+  - step의 경우 3 epoch씩 끊어서 총 9 epoch 학습
+
+|          | validatin token loss |     bleu |  meteor |      chrf |
+|:---------|---------------------:|---------:|--------:|----------:|
+| step     |              3.11860 | 28.53709 | 0.57593 |  55.77228 |
+| step/100 |              3.29259 | 25.32201 | 0.53809 |  52.46701 |
+
+![step metric 점수 비교](imgs/step_m_test_metric.png)
+![step metric 점수 비교2](imgs/step_m_test_metric2.png)
+![step loss 비교](imgs/step_m_test_loss.png)
+![step loss 비교2](imgs/step_m_test_loss2.png)
+
+---
+
+## 5. Embedding / Generator Weight Tying 실험
 
 Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능을 비교
 
 - Encoder embedding (입력 임베딩)
 - Decoder embedding (출력 임베딩)
-- Generator weights (decoder output → vocab logits projection)
+- Generator(ffc) weights (decoder output → vocab logits projection)
 
 ### 실험 조건
 
@@ -400,47 +455,32 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 ### 최종 결과
 
 - **weight tying 미사용 (5번)가 가장 좋은 성능**
-  - encoder와 decoder embedding을 공유하는 경우가 token별 로스는 가장 작지만 metric 점수가 더 높은 weight tying 미사용을 선택
+  - 한국어를 변환하는 encoder embedding과 모델 결과를 다시 영어로 변환하는 ffc 레이어가 weight를 공유하지만 않으면 성능이 괜찮게 나오는 것을 확인 가능
+    - 한국어 -> 한국어 생성이나 영어 -> 영어 생성과는 다르게 구조가 다른 언어간의 번역에는  
+    다른 언어를 다루는 레이어간의 weight 공유가 오히려 학습에 악영향을 주는 것으로 추정
 
-1m 데이터셋 3 epoch 실험 결과 비교
+1M 데이터셋 3 epoch 실험 결과 비교
 
-|                       | validatin token loss |     bleu |  meteor |      chrf |
-|:----------------------|---------------------:|---------:|--------:|----------:|
-| 3-way tying           |              3.98467 | 16.41380 | 0.41464 |  41.42203 |
-| en_embed == de_embed  |              3.21403 | 26.08797 | 0.54899 |  53.61686 |
-| en_embed == ffc_embed |              3.84131 | 15.95757 | 0.41242 |  41.29004 |
-| de_embed == ffc_embed |              3.45032 | 25.16554 | 0.53985 |  52.41564 |
-| no tying              |              3.21805 | 26.23472 | 0.55195 |  53.72043 |
+|                         | validatin token loss |     bleu |  meteor |      chrf |
+|:------------------------|---------------------:|---------:|--------:|----------:|
+| 3-way tying             |              3.98467 | 16.41380 | 0.41464 |  41.42203 |
+| en_embed == de_embed    |              3.21403 | 26.08797 | 0.54899 |  53.61686 |
+| en_embed == ffc_weights |              3.84131 | 15.95757 | 0.41242 |  41.29004 |
+| de_embed == ffc_weights |              3.45032 | 25.16554 | 0.53985 |  52.41564 |
+| no tying                |              3.21805 | 26.23472 | 0.55195 |  53.72043 |
 
 ![방식별 metric 점수 비교](imgs/weight_tying_test_metric.png)
 ![방식별 loss 비교](imgs/weight_tying_test_loss.png)
 
----
+warmup steps 8,000에서 2번, 5번 비교
 
-## 5. Learning Rate 스케줄 실험
+|                         | validatin token loss |     bleu |  meteor |      chrf |
+|:------------------------|---------------------:|---------:|--------:|----------:|
+| en_embed == de_embed    |              3.16969 | 26.69073 | 0.55397 |  54.04070 |
+| no tying                |              3.15922 | 26.83338 | 0.55560 |  54.09024 |
 
-학습률 스케줄은 **Annotated Transformer 글에서 제안된 함수**를 기본으로 사용하되, 여러 변형을 실험함
-### 기본 스케줄 (Annotated Transformer 스타일)
-
-- 형식:  
-  $$
-  lr = d_{model}^{-0.5} \cdot \min\left(step^{-0.5}, step \cdot warmup^{-1.5}\right)
-  $$
-- 실험한 변수:
-  - warmup step 수 (예: 4,000 / 8,000 / 16,000 등)
-  - 전체 스케일링 factor (multiplying factor) 변경
-
-### 추가 스케줄
-
-- 단순 감쇠 함수 (예: \(a^{-x}\) 꼴의 지수 감쇠)
-- step/epoch 기반 cosine decay 등의 변형도 비교 가능하도록 코드 구조화
-
-각 스케줄에 대해 수렴 속도, 최종 성능, 안정성(gradient explosion/vanishing 여부)을 관찰
-
-> TODO:  
-> - step에 따른 lr 변화 그래프 (WandB)  
-> - 각 스케줄별 학습 곡선 / 최종 메트릭 비교 그래프  
-> - lr 스케줄별 best checkpoint 성능 표
+![2번,5번 metric 점수 비교](imgs/weight_tying_test2_metric.png)
+![2번,5번 loss 비교](imgs/weight_tying_test2_loss.png)
 
 ---
 
