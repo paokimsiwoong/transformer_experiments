@@ -73,8 +73,10 @@
 ![10m 한국어 문장 길이](imgs/10m_complete_kor.png)
 ![10m 영어 문장 길이](imgs/10m_complete_en.png)
 
+---
+
 <details>
-<summary> <h4> <code> 10M 데이터셋 전처리 과정 </code> </h4> </summary>
+<summary> <h2> <code> 10M 데이터셋 전처리 과정 </code> </h2> </summary>
 <div markdown="1">
 
 #### 1-2-1. 세부 분류 통합 (수백 종 → 8개 대분류)
@@ -277,6 +279,8 @@
 
 </div>
 </details>
+
+---
 
 ### 1-3. 9M 데이터셋
 
