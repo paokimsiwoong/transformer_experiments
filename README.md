@@ -41,6 +41,7 @@
 ![한국어 문장 길이](imgs/1m_kor.png)
 ![영어 문장 길이](imgs/1m_en.png)
 
+> TODO: train, val, test 비율 및 개수 표 추가
 
 ### 1-2. 10M 데이터셋 전처리 (12M → 10M 축소)
 
@@ -323,6 +324,7 @@
   - 문자 단위 F-score 기반 지표로, 특히 한국어/영어 같은 형태소 구조가 다른 언어 쌍에서 유용
 
 > TODO: metric 선택 이유
+>> bert 사용 시 OOM 또는 crash ==> 도입 시도 좌절
 
 ![metrics](imgs/metrics_ex.png)
 
@@ -485,41 +487,85 @@ Transformer 구조에서 다음 세 weight 간의 tying 여부에 따른 성능�
 
 ### 6-1. Batch Size와 성능
 
-- 초기 실험: batch size 8 → 16 → 32로 증가  
-  - **batch size가 커질수록 성능이 지속적으로 향상**됨을 확인
-- GPU 메모리 한계로 인해 batch size를 64 이상으로 직접 올리기 어려워, **gradient accumulation** 도입
-  - 예: 실제 batch size 64, 128, 256에 대응하는 effective batch를  
-    - base batch 32 + accumulation steps 2, 4, 8 등으로 구성
-  - **accumulation step이 늘어날수록 성능이 증가하는 경향** 확인
+batch size 8, 16, 32 비교 
+- Mixed precision을 사용한 상태에서 가능한 배치 크기 최대는 32
+- batch size가 커질수록 **성능 향상**
 
-> TODO: batch size / accumulation step vs BLEU 등의 그래프 (WandB)  
+#### **1M 데이터셋 3 epoch 실험 결과 비교**
+
+|                    | validatin token loss |     bleu |  meteor |      chrf |
+|:-------------------|---------------------:|---------:|--------:|----------:|
+| batch 8 (mp 미사용) |              3.16243 | 28.89336 | 0.55710 |  54.23282 |
+| batch 8            |              3.15972 | 26.49603 | 0.55558 |  54.11641 |
+| batch 32           |              2.77315 | 30.68597 | 0.59301 |  57.72989 |
+
+![배치별 metric 점수 비교](imgs/batch_test_metric.png)
+![배치별 loss 비교](imgs/batch_test_loss.png)
+
+> TODO: batch 16 다시 실험하기
+
+batch size를 64 이상은 메모리 초과로 불가능 ==> **gradient accumulation** 도입
+- batch size 64, 128, 256에 대응하는 effective batch를  
+base batch 32 + accumulation steps 2, 4, 8 등으로 구성
+- **accumulation step이 늘어날수록 성능이 증가**하는 경향 확인
+  - 18 epoch 까지 추가 실험한 결과 effective batch가 클 수록 더 빠르게 학습이 수렴 확인
+    - batch 32의 경우 loss 최소값이 epoch 17, effective batch 256의 경우 loss 최소값이 epoch 11
+> TODO: 증가 경향이 언제까지 유지되는지 16, 32, ... 추가 실험하기
+
+#### **1M 데이터셋 9 epoch 실험 결과 비교**
+
+|                         | validatin token loss |     bleu |  meteor |      chrf |
+|:------------------------|---------------------:|---------:|--------:|----------:|
+| batch 32                |              2.66153 | 33.42450 | 0.61783 |  59.88738 |
+| batch 64(accum step 2)  |              2.55030 | 34.72580 | 0.62952 |  61.13003 |
+| batch 128(accum step 4) |              2.49150 | 35.66416 | 0.63684 |  61.82716 |
+| batch 256(accum step 8) |              2.46678 | 35.92441 | 0.63902 |  62.06768 |
+
+![accumulation step별 metric 점수 비교](imgs/ga_test_metric.png)
+![accumulation step별 loss 비교](imgs/ga_test_loss.png)
+
+#### **1M 데이터셋 18 epoch 실험 결과 비교**
+
+|                         | validatin token loss |     bleu |  meteor |      chrf |
+|:------------------------|---------------------:|---------:|--------:|----------:|
+| batch 32                |    2.64989(epoch 17) | 34.14472 | 0.62436 |  60.54739 |
+| batch 64(accum step 2)  |    2.53445(epoch 13) | 35.78065 | 0.63797 |  61.89355 |
+| batch 128(accum step 4) |    2.48039(epoch 12) | 36.41379 | 0.64296 |  62.45463 |
+| batch 256(accum step 8) |    2.45713(epoch 11) | 36.84309 | 0.64655 |  62.71132 |
+
+![18 epoch accumulation step별 metric 점수 비교](imgs/ga_test_metric2.png)
+![18 epoch accumulation step별 loss 비교](imgs/ga_test_loss2.png)
+![18 epoch accumulation step별 loss 비교 2](imgs/ga_test_loss3.png)
+
 > TODO: 메모리 사용량 vs batch size 비교 표/그래프 자리
 
 ---
 
-### 6-2. Batch Size 실험에 따른 메모리 문제 해결 과정
+<details>
+<summary> <h2> <code> Batch Size 실험 메모리 문제 해결 과정 </code> </h2> </summary>
+<div markdown="1">
 
-#### 6-2-1. Mixed Precision 도입
+### 1. Mixed Precision 도입
 
 - PyTorch AMP (`torch.cuda.amp`)를 사용해 half precision으로 계산  
   - 메모리 사용량 감소  
   - 연산 속도 증가
 
-#### 6-2-2. Sequence 길이 변화에 따른 reserved memory 증가 문제
+### 2. Sequence 길이 변화에 따른 reserved memory 증가 문제
 
 - 각 batch마다 sequence 길이가 달라질 때, PyTorch가 reserved memory를 계속 늘리는 문제를 관찰
 - 해결: **memory pre-allocation** 전략 도입
   - 고정된 최대 토큰 수를 기준으로 메모리를 미리 할당
   - 매 batch에서 이 범위 내에서만 연산하도록 조정
 
-##### 6-2-2-1. Custom Sampler 시도
+#### 2-1. Custom Sampler 시도
 
 - 아이디어: batch마다 `token + pad` 개수를 일정하게 유지
   - TODO: 토큰 개수 기준으로 bucket을 만들고, 비슷한 길이 문장끼리 묶어서 배치 구성
 - 하지만, 실제 실험에서는 다음 전략이 더 효율적이었음
   - **batch당 문장 개수를 일정하게 유지** 하고 memory pre-allocation 시 `batch_size × (데이터셋 전체에서의 최대 토큰 길이)` 기준으로 할당
 
-##### 6-2-2-2. 메모리 한계 초과 시 동적 처리
+#### 2-2. 메모리 한계 초과 시 동적 처리
 
 batch size가 커지면서,  
 `batch_size × max_seq_len` 기준으로 pre-allocation이 불가능한 경우가 발생함
@@ -538,7 +584,7 @@ batch size가 커지면서,
 > - pre-allocation 유무에 따른 메모리 사용량/속도 비교 그래프  
 > - 길이 분포 / bucket 전략 설명 그림
 
-#### 6-2-3. Gradient Checkpoint 도입
+### 3. Gradient Checkpoint 도입
 
 - vocab 크기가 큰 토크나이저(EXAONE 계열)를 사용할 때는  
   각 Transformer encoder, decoder block에 **gradient checkpoint**를 적용하여 메모리 사용량을 추가로 줄임
@@ -552,13 +598,18 @@ batch size가 커지면서,
 > - checkpoint 사용 전/후 메모리 사용량 비교 그래프  
 > - checkpoint 사용 전/후 학습 속도 vs 성능 트레이드오프 그래프
 
+</div>
+</details>
+
 ---
 
-## 7. WandB 로그 및 결과 정리 (Placeholder)
+## 7. 1M vs 10M 성능 비교
 
-본 저장소의 실험 결과는 대부분 WandB를 통해 기록함
+1M 학습 모델 구어체 성능과 문어체(특히 조례) 성능 큰 격차 ==> 10M 도입
+10M from scratch
+1M 학습 후 9M fine-tuning
+1M 학습 후 9M 중 구어체만 fine-tuning
 
-- 프로젝트 이름: `transformer 한영 번역 실험`
 
 > TODO: 아래 항목에 WandB 링크/이미지 삽입
 >
