@@ -73,17 +73,17 @@ class Loaders_10M():
         # 5: 문어체_지자체웹사이트 2002
 
         # 2) 카테고리 컬럼의 고유 클래스 찾아서 ClassLabel 객체 생성
-        unique_classes = dataset.unique('cat')  
-        unique_classes.sort()
+        unique_classes = dataset.unique('domain')  
+        # unique_classes.sort()
         print(f"==>> unique_classes: {unique_classes}")
 
         class_label = ClassLabel(names=unique_classes)
 
         # 3) 기존 컬럼 타입 변경 (캐스팅)
-        dataset = dataset.cast_column('cat', class_label)
+        dataset = dataset.cast_column('domain', class_label)
 
         # 4) stratify_by_column으로 분할
-        train_valid = dataset.train_test_split(test_size=0.2, seed=seed, stratify_by_column='cat')
+        train_valid = dataset.train_test_split(test_size=0.2, seed=seed, stratify_by_column='domain')
 
         dataset_dict = DatasetDict({
             'train': train_valid['train'],
@@ -328,7 +328,7 @@ def collate_fn(batch, start_idx, end_idx, padding_idx, unk_idx):
     # batch는 [{'kor':..., 'en':..., 'cat':숫자, 'input_ids':[...], 'attention_mask':[1, ...], 'labels': [...]}, ...] 형태
     
     # keys = batch[0].keys()
-    keys = ['kor', 'en', 'cat', 'style', 'input_ids', 'attention_mask', 'labels', 'length', 'length_label']
+    keys = ['kor', 'en', 'domain', 'style', 'input_ids', 'attention_mask', 'labels', 'length', 'length_label']
     # print(f"==>> keys: {keys}")
     # print("".center(50, "-"))
     

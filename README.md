@@ -12,6 +12,12 @@
 
 ---
 
+## 0. 실험 결과
+
+> TODO: 전체 실험 결과 요약, 성능 표
+
+---
+
 ## 1. 데이터셋 및 전처리
 
 ### 1-1. 1M 데이터셋 전처리
@@ -586,7 +592,6 @@ batch size가 커지면서,
 
 > TODO:  
 > - pre-allocation 유무에 따른 메모리 사용량/속도 비교 그래프  
-> - 길이 분포 / bucket 전략 설명 그림
 
 ### 3. Gradient Checkpoint 도입
 
@@ -615,17 +620,13 @@ batch size가 커지면서,
 1M 학습 후 9M 중 구어체만 fine-tuning
 
 
-> TODO: 아래 항목에 WandB 링크/이미지 삽입
->
+> TODO:
 > - [ ] 데이터셋 규모(1M vs 10M)에 따른 성능 비교 그래프  
-> - [ ] 토크나이저별 학습 곡선 및 최종 메트릭  
-> - [ ] weight tying 설정별 성능 비교  
-> - [ ] learning rate 스케줄별 학습/검증 loss 및 BLEU  
 > - [ ] batch size / gradient accumulation에 따른 성능 및 메모리 사용량
 
 ---
 
-## 8. 재현 방법 (예시)
+## 8. 재현 방법
 
 ```bash
 # 0. 환경 설치
