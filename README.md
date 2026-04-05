@@ -358,7 +358,7 @@
     - 1M train 전체 토큰(29704824) 중 약 0.05%(14653)가 unknown
       - ![1m_t5_train_input_total](imgs/1m_t5_total.png)
       - ![1m_t5](imgs/1m_t5.png)
-    - 10M train 전체 토큰(TODO:데이터셋 수정 -> 전체토큰수 수정 필요) 중 약 0.08%가 unknown
+    - 10M train 전체 토큰(232180827) 중 약 0.08%()가 unknown
       - ![10m_t5](imgs/10m_t5.png)
 - `Translation-EnKo/exaone3-instrucTrans-v2-enko-7.8b`
   - [nayohan/aihub-en-ko-translation-12m](https://huggingface.co/datasets/nayohan/aihub-en-ko-translation-12m) 데이터셋을 사용해 학습한 모델의 토크나이저
@@ -505,12 +505,13 @@ batch size 8, 16, 32 비교
 
 |                    | validatin token loss |     bleu |  meteor |      chrf |
 |:-------------------|---------------------:|---------:|--------:|----------:|
-| batch 8 (mp 미사용) |              3.16243 | 28.89336 | 0.55710 |  54.23282 |
+| batch 8 (mp 미사용) |              3.16243 | 26.89336 | 0.55710 |  54.23282 |
 | batch 8            |              3.15972 | 26.49603 | 0.55558 |  54.11641 |
+| batch 16           |              2.93737 | 28.84267 | 0.57695 |  56.15104 |
 | batch 32           |              2.77315 | 30.68597 | 0.59301 |  57.72989 |
 
-![배치별 metric 점수 비교](imgs/batch_test_metric.png)
-![배치별 loss 비교](imgs/batch_test_loss.png)
+![배치별 metric 점수 비교](imgs/batch_test_metric_16.png)
+![배치별 loss 비교](imgs/batch_test_loss_16.png)
 
 > TODO: batch 16 다시 실험하기
 

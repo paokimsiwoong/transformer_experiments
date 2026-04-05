@@ -442,7 +442,7 @@ def collate_fn_test(batch, start_idx, end_idx, padding_idx, unk_idx):
 
 # 배치 안 총 토큰 개수를 일정하게 만들어주는 custom sampler
 class TokenBatchSampler(Sampler):
-    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 268075627, mean_token_count = 23):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 184142924, mean_token_count = 23):
         # dataset에 'length' 컬럼 있어야 함
         self.lengths = dataset["length"]
 
@@ -519,12 +519,7 @@ class TokenBatchSampler(Sampler):
     # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
     def __len__(self):
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # 학습셋 총 토큰 29704824개
-        # 데이터 당 평균 토큰 수 23.17개 ~ 23
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        # @@@ 40586486, 31.66 값은 label 기준
-        # 학습셋 총 토큰 40586486개
-        # 데이터 당 평균 토큰 수 31.66개 ~ 32
+        # 학습셋 총 토큰 184142924개
         # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         # if self.len_bool:
@@ -532,13 +527,12 @@ class TokenBatchSampler(Sampler):
         # # 배치의 총 토큰 수가 self.target_tokens을 채우기 전에 self.max_batch_samples 도달
             # return (self.num_samples // self.max_batch_samples) + 1
 
-        # => (40586486 // 10000) + 1
         return (self.total_token_count // self.target_tokens) + 1
 
 
 # 각 배치 내 최대길이 * 배치 갯수 값을 일정값으로 고정하는 sampler
 class TokenPadBatchSampler(TokenBatchSampler):
-    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 268075627, mean_token_count = 23):
+    def __init__(self, dataset, target_tokens=2000, max_batch_samples=64, total_token_count = 184142924, mean_token_count = 23):
         super().__init__(dataset, target_tokens, max_batch_samples, total_token_count, mean_token_count)
         
     # 샘플러 iterator 정의 (__next__ 메소드가 불릴 때마다 yield 한번씩)
@@ -612,8 +606,8 @@ class TokenPadBatchSampler(TokenBatchSampler):
     # __len__: 총 배치 수를 알려주는 메소드
     # # 정확한 값이 어려우면 근사치여도 되지만 프로그레스 바가 부정확해진다
     def __len__(self):
-        # 토큰 개수 268075627
-        # label 토큰 개수 329348725
+        # 토큰 개수 184142924
+        # label 토큰 개수 232180827
         # 토큰+패드 기준으로 배치 크기를 제한하므로
         # __len__값은 부정확
         return (self.total_token_count // self.target_tokens) + 1
