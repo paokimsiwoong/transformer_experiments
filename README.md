@@ -513,9 +513,7 @@ batch size 8, 16, 32 비교
 ![배치별 metric 점수 비교](imgs/batch_test_metric_16.png)
 ![배치별 loss 비교](imgs/batch_test_loss_16.png)
 
-> TODO: batch 16 다시 실험하기
-
-batch size를 64 이상은 메모리 초과로 불가능 ==> **gradient accumulation** 도입
+batch size 64 이상은 메모리 초과로 불가능 ==> **gradient accumulation** 도입
 - batch size 64, 128, 256에 대응하는 effective batch를  
 base batch 32 + accumulation steps 2, 4, 8 등으로 구성
 - **accumulation step이 늘어날수록 성능이 증가**하는 경향 확인
