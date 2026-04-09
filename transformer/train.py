@@ -14,6 +14,7 @@ from arg_parser import parse_args
 
 from dataloader import Loaders
 from dataloader_10m import Loaders_10M
+from dataloader_9m import Loaders_9M
 from models import Transformer
 from loss import LabelSmoothing
 from loops import train_loop, val_loop, test_loop, train_loop_with_mp, val_loop_with_mp, test_loop_with_mp
@@ -121,6 +122,11 @@ def train(
         data_dir_dir = osp.dirname(data_dir)
         test_dir = osp.join(data_dir_dir, "data_test.csv")
         loaders = Loaders_10M(data_path=data_dir, test_path=test_dir, max_token_length=max_token_length, target_tokens=target_tokens, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers,  tokenizer=tokenizer, seed=seed)
+    elif osp.basename(data_dir) == "data_9m.csv":
+        print("Loading 9m dataset")
+        data_dir_dir = osp.dirname(data_dir)
+        test_dir = osp.join(data_dir_dir, "data_test.csv")
+        loaders = Loaders_9M(data_path=data_dir, test_path=test_dir, max_token_length=max_token_length, target_tokens=target_tokens, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers,  tokenizer=tokenizer, seed=seed)
     else:
         print("Loading 1m dataset")
         # loaders = Loaders(data_path=data_dir, max_token_length=max_token_length, batch_size_train=batch_size, num_workers=num_workers, batch_size_val=val_batch_size, batch_size_test=test_batch_size, val_num_workers=val_num_workers, start_idx=start_idx, end_idx=end_idx, padding_idx=padding_idx, unk_idx=unk_idx, seed=seed)

@@ -19,10 +19,10 @@ from functools import partial
 from collections import defaultdict
 # custom sampler에서 사용
 
-class Loaders_10M():
+class Loaders_9M():
     def __init__(
             self,
-            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data_10m.csv",
+            data_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data_9m.csv",
             test_path="/home/paokimsiwoong/workspace/github.com/paokimsiwoong/transformer_experiments/transformer/data_test.csv",
             max_token_length = 512,
             target_tokens = None,
@@ -45,17 +45,16 @@ class Loaders_10M():
         # kor, en, style, domain 4개의 칼럼으로 구성
         # style
         # # 문어체    6,533,927
-        # # 구어체    2,913,812
-        # # 혼재     887,636
+        # # 구어체    2913310
+        # # 혼재     1260217
         # domain
-        # # 과학/기술/학술자료	3,551,239
-        # # 일상/대화	2,913,812
-        # # 문화/예술/역사	1,260,037
-        # # 뉴스/시사	1,179,584
+        # # 과학/기술/학술자료	3,551,238
+        # # 일상/대화	2,431,931
+        # # 문화/예술/역사	1,166,765
         # # 의학/보건	653,538
-        # # 법률/행정	621,781
+        # # 법률/행정	534,945
+        # # 뉴스/시사	337,441
         # # 금융/경제	155,384
-        # data_10m.csv와 data_10m_test.csv(기존 데이터셋과 완전히 동일한 test셋은 data_test.csv) 사용으로 변경해야함
         
         # 1-2) test 셋 로드
         testset = load_dataset("csv", data_files=test_path)['train']
